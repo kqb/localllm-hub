@@ -30,7 +30,7 @@ function startWatcher(dbPath, sessionsDir) {
     if (watchedFiles.has(filePath)) return;
     watchedFiles.add(filePath);
 
-    watchFile(filePath, { interval: 5000 }, (curr, prev) => {
+    watchFile(filePath, { interval: config.watcher?.pollInterval || 5000 }, (curr, prev) => {
       if (curr.mtimeMs === prev.mtimeMs) return;
 
       // Debounce: wait 2s after last change
@@ -38,11 +38,12 @@ function startWatcher(dbPath, sessionsDir) {
         clearTimeout(debounceTimers.get(filePath));
       }
 
+      const debounceMs = config.watcher?.debounce || 2000;
       debounceTimers.set(filePath, setTimeout(() => {
         debounceTimers.delete(filePath);
         logger.info(`Change detected: ${basename(filePath)}`);
         processFile(filePath);
-      }, 2000));
+      }, debounceMs));
     });
 
     logger.debug(`Watching: ${basename(filePath)}`);
@@ -55,6 +56,7 @@ function startWatcher(dbPath, sessionsDir) {
   }
 
   // Poll for new files every 30s
+  const scanMs = config.watcher?.newFileScan || 30000;
   const scanInterval = setInterval(() => {
     if (!existsSync(sessionsDir)) return;
     const current = readdirSync(sessionsDir).filter(f => f.endsWith('.jsonl'));
@@ -66,7 +68,7 @@ function startWatcher(dbPath, sessionsDir) {
         processFile(fullPath); // Ingest immediately
       }
     }
-  }, 30000);
+  }, scanMs);
 
   logger.info(`Watcher started — monitoring ${files.length} files in ${sessionsDir}`);
   logger.info(`Polling for new files every 30s, debounce 2s`);

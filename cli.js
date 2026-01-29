@@ -307,4 +307,15 @@ chat
     db.close();
   });
 
+// Dashboard
+program
+  .command('dashboard')
+  .description('Start the monitoring dashboard')
+  .option('-p, --port <port>', 'Port number', '3847')
+  .action((options) => {
+    process.env.DASHBOARD_PORT = options.port;
+    const { start } = require('./packages/dashboard/server');
+    start();
+  });
+
 program.parse();

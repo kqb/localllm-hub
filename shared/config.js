@@ -1,7 +1,10 @@
 const { homedir } = require('os');
 const { join } = require('path');
+const { existsSync, readFileSync } = require('fs');
 
-module.exports = {
+const OVERRIDES_PATH = join(__dirname, '..', 'config.local.json');
+
+const defaults = {
   models: {
     triage: 'qwen2.5:7b',
     code: 'qwen2.5-coder:32b',
@@ -28,5 +31,43 @@ module.exports = {
     dimension: 1024,
     chunkSize: 500,
     chunkOverlap: 100,
-  }
+  },
+  watcher: {
+    pollInterval: 5000,
+    debounce: 2000,
+    newFileScan: 30000,
+  },
 };
+
+// Deep merge: overrides win
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+function loadConfig() {
+  let overrides = {};
+  if (existsSync(OVERRIDES_PATH)) {
+    try {
+      overrides = JSON.parse(readFileSync(OVERRIDES_PATH, 'utf-8'));
+    } catch (e) {
+      console.error(`[config] Failed to load overrides: ${e.message}`);
+    }
+  }
+  return deepMerge(defaults, overrides);
+}
+
+// Export a live config that reloads on access
+const config = loadConfig();
+config._reload = loadConfig;
+config._overridesPath = OVERRIDES_PATH;
+config._defaults = defaults;
+
+module.exports = config;

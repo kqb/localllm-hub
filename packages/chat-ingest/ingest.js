@@ -72,6 +72,7 @@ async function ingestFile(db, filePath) {
 
   const { messages, newOffset } = parseTranscriptMessages(filePath, lastOffset);
   if (messages.length === 0) {
+    logger.info(`  No text messages in new data (tool calls/system only), advancing offset`);
     // Update offset even if no messages (could be tool-only lines)
     db.prepare(`
       INSERT INTO ingest_progress (file, last_offset, last_timestamp)
@@ -81,8 +82,13 @@ async function ingestFile(db, filePath) {
     return 0;
   }
 
+  logger.info(`  Found ${messages.length} messages (${messages.filter(m => m.role === 'user').length} user, ${messages.filter(m => m.role === 'assistant').length} assistant)`);
+
   const chunks = chunkMessages(messages, sessionId, filePath);
-  if (chunks.length === 0) return 0;
+  if (chunks.length === 0) {
+    logger.info(`  Messages produced 0 chunks after grouping`);
+    return 0;
+  }
 
   logger.info(`  ${messages.length} messages → ${chunks.length} chunks, embedding...`);
 
@@ -159,6 +165,10 @@ async function ingestFile(db, filePath) {
   );
 
   logger.info(`  Saved ${chunksWithEmbeddings.length} chunks`);
+  for (const chunk of chunksWithEmbeddings) {
+    const preview = chunk.text.replace(/\n/g, ' ').slice(0, 120);
+    logger.info(`  [chunk] ${chunk.startTs || '?'} → ${preview}...`);
+  }
   return chunksWithEmbeddings.length;
 }
 

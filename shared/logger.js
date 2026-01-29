@@ -7,10 +7,19 @@ const LOG_LEVELS = {
 
 const currentLevel = LOG_LEVELS[process.env.LOG_LEVEL || 'info'];
 
+function timestamp() {
+  return new Date().toISOString().replace('T', ' ').replace('Z', '');
+}
+
 function log(level, ...args) {
   if (LOG_LEVELS[level] >= currentLevel) {
-    const prefix = `[${level.toUpperCase()}]`;
-    console.error(prefix, ...args);
+    const prefix = `[${timestamp()}] [${level.toUpperCase()}]`;
+    // errors to stderr, everything else to stdout
+    if (level === 'error') {
+      console.error(prefix, ...args);
+    } else {
+      console.log(prefix, ...args);
+    }
   }
 }
 

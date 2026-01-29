@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LocalLLM Hub — Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
+    --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --red: #f85149; --yellow: #d29922; --purple: #bc8cff; --orange: #f0883e;
+    --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+  header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .status-dot.warn { background: var(--yellow); }
+  header .meta { margin-left: auto; color: var(--text2); font-size: 13px; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .grid-6 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 12px; }
+  .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+
+  .stat { display: flex; flex-direction: column; gap: 4px; }
+  .stat .label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+  .stat .value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .value.sm { font-size: 16px; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge.green { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge.red { background: rgba(248,81,73,.15); color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .badge.blue { background: rgba(88,166,255,.15); color: var(--accent); }
+  .badge.purple { background: rgba(188,140,255,.15); color: var(--purple); }
+  .badge.orange { background: rgba(240,136,62,.15); color: var(--orange); }
+
+  .kv { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--text2); }
+
+  /* Search */
+  .search-box { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search-box input[type=text] { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box button, .btn { background: var(--accent); color: #000; border: none; border-radius: var(--radius); padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn:hover { opacity: .85; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn.outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn.outline:hover { background: rgba(88,166,255,.1); }
+  .btn.danger { background: var(--red); color: #fff; }
+
+  .filters { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .filters label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text2); cursor: pointer; }
+  .filters input[type=checkbox] { accent-color: var(--accent); }
+  .filters .range-wrap { display: flex; align-items: center; gap: 8px; }
+  .filters input[type=range] { width: 100px; accent-color: var(--accent); }
+
+  .results { display: flex; flex-direction: column; gap: 8px; max-height: 500px; overflow-y: auto; }
+  .result-item { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; transition: border-color .15s; }
+  .result-item:hover { border-color: var(--accent); }
+  .result-item .meta { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; }
+  .result-item .score { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .result-item .preview { color: var(--text2); font-size: 13px; line-height: 1.4; overflow: hidden; }
+  .result-item .preview.expanded { max-height: none !important; }
+  .result-item .preview:not(.expanded) { max-height: 60px; }
+
+  /* Model cards */
+  .model-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .model-row:last-child { border-bottom: none; }
+  .model-row .name { font-weight: 600; font-size: 14px; flex: 1; }
+  .model-row .size { color: var(--text2); font-size: 13px; }
+
+  /* Package cards */
+  .pkg-card { display: flex; flex-direction: column; gap: 8px; }
+  .pkg-card .pkg-header { display: flex; align-items: center; gap: 8px; }
+  .pkg-card .pkg-name { font-weight: 600; font-size: 15px; }
+  .pkg-card .pkg-ver { font-size: 12px; color: var(--text2); }
+
+  /* Jobs */
+  .job-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: var(--text2); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+
+  .empty { color: var(--text2); font-size: 14px; text-align: center; padding: 24px; }
+
+  /* Context Monitor */
+  .ctx-progress { position: relative; height: 28px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+  .ctx-progress-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+  .ctx-progress-fill.green { background: var(--green); opacity: .7; }
+  .ctx-progress-fill.yellow { background: var(--yellow); opacity: .7; }
+  .ctx-progress-fill.red { background: var(--red); opacity: .7; }
+  .ctx-progress-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--text); text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+  .ctx-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ctx-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .ctx-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  .ctx-table tr:last-child td { border-bottom: none; }
+  .ctx-table .missing { color: var(--text2); font-style: italic; }
+  .ctx-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 768px) {
+    main { padding: 12px; }
+    .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧠 <span>LocalLLM</span> Hub</h1>
+  <span id="ollama-dot" class="status-dot warn" title="Checking..."></span>
+  <span id="ollama-label" style="font-size:13px;color:var(--text2)">Checking Ollama...</span>
+  <div class="meta">
+    <span id="last-update">—</span>
+  </div>
+</header>
+
+<main>
+  <!-- Status Row -->
+  <section class="grid grid-2">
+    <div class="card" id="status-card">
+      <h2>⚡ Service Status</h2>
+      <div id="status-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+    </div>
+    <div class="card" id="models-card">
+      <h2>🤖 Loaded Models</h2>
+      <div id="models-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+    </div>
+  </section>
+
+  <!-- Context Monitor -->
+  <section class="card" id="context-card">
+    <h2>📊 Context Monitor</h2>
+    <div id="context-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Search -->
+  <section class="card" id="search-card">
+    <h2>🔍 Semantic Search</h2>
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Search memory, chats, and Telegram..." />
+      <button class="btn" onclick="doSearch()">Search</button>
+    </div>
+    <div class="filters">
+      <label><input type="checkbox" id="src-memory" checked> 📝 Memory</label>
+      <label><input type="checkbox" id="src-chat" checked> 💬 Chat</label>
+      <label><input type="checkbox" id="src-telegram" checked> 📱 Telegram</label>
+      <div class="range-wrap">
+        <span style="font-size:13px;color:var(--text2)">Top-K:</span>
+        <input type="range" id="topk" min="1" max="20" value="5">
+        <span id="topk-val" style="font-size:13px;color:var(--text);min-width:20px">5</span>
+      </div>
+    </div>
+    <div id="search-results" class="results"></div>
+  </section>
+
+  <!-- Jobs & Packages Row -->
+  <section class="grid grid-2">
+    <div class="card" id="jobs-card">
+      <h2>📊 Ingestion Stats</h2>
+      <div id="jobs-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn sm outline" onclick="triggerReindex()">🔄 Reindex Memory</button>
+        <button class="btn sm outline" onclick="loadJobs()">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📋 Operation Log</h2>
+      <div id="op-log" style="max-height:200px;overflow-y:auto;font-size:13px;color:var(--text2)">
+        <div class="empty">No operations yet</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Clawdbot Behavior -->
+  <section class="card" id="clawdbot-card">
+    <h2>🤖 Clawdbot Memory Behavior</h2>
+    <div id="clawdbot-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Memory Config -->
+  <section class="card" id="memory-card">
+    <h2>🧠 Memory Configuration</h2>
+    <div id="memory-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Daemons -->
+  <section class="card" id="daemons-card">
+    <h2>🔄 Daemons</h2>
+    <div id="daemons-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Packages -->
+  <section class="card">
+    <h2>📦 Packages</h2>
+    <div id="packages-grid" class="grid grid-6">
+      <span class="loading-text"><span class="spinner"></span> Loading...</span>
+    </div>
+  </section>
+</main>
+
+<script>
+const API = '';
+const $  = id => document.getElementById(id);
+
+// --- Helpers ---
+function fmt(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function fmtModelSize(bytes) {
+  if (!bytes) return '?';
+  return (bytes / 1073741824).toFixed(1) + ' GB';
+}
+
+function logOp(msg) {
+  const el = $('op-log');
+  const ts = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.style.padding = '4px 0';
+  div.style.borderBottom = '1px solid var(--border)';
+  div.innerHTML = `<span style="color:var(--text2)">[${ts}]</span> ${msg}`;
+  if (el.querySelector('.empty')) el.innerHTML = '';
+  el.prepend(div);
+}
+
+// --- Status ---
+async function loadStatus() {
+  try {
+    const res = await fetch(API + '/api/status');
+    const d = await res.json();
+
+    // Header dot
+    const dot = $('ollama-dot');
+    const lbl = $('ollama-label');
+    if (d.ollama.healthy) {
+      dot.className = 'status-dot ok'; lbl.textContent = 'Ollama Online';
+    } else {
+      dot.className = 'status-dot err'; lbl.textContent = 'Ollama Offline';
+    }
+    $('last-update').textContent = 'Updated ' + new Date(d.timestamp).toLocaleTimeString();
+
+    // Status card
+    let html = '';
+    html += `<div class="kv"><span class="k">Ollama</span><span class="badge ${d.ollama.healthy ? 'green' : 'red'}">${d.ollama.healthy ? 'Healthy' : 'Down'}</span></div>`;
+    html += `<div class="kv"><span class="k">whisper.cpp</span><span class="badge ${d.whisper.found ? 'green' : 'yellow'}">${d.whisper.found ? 'Found' : 'Not Found'}</span></div>`;
+    if (d.whisper.path) html += `<div class="kv"><span class="k">Whisper Path</span><span style="font-size:12px;color:var(--text2)">${d.whisper.path}</span></div>`;
+    for (const db of d.databases) {
+      const badge = db.exists ? (db.error ? 'yellow' : 'green') : 'red';
+      const label = db.exists ? (db.error ? 'Error' : 'OK') : 'Missing';
+      html += `<div class="kv"><span class="k">${db.label}</span><span class="badge ${badge}">${label}</span></div>`;
+      if (db.sizeBytes) html += `<div class="kv"><span class="k" style="padding-left:12px">Size</span><span>${fmt(db.sizeBytes)}</span></div>`;
+      if (db.tables) {
+        for (const [t, c] of Object.entries(db.tables)) {
+          html += `<div class="kv"><span class="k" style="padding-left:12px">${t}</span><span>${c.toLocaleString()} rows</span></div>`;
+        }
+      }
+    }
+    $('status-content').innerHTML = html;
+  } catch (e) {
+    $('ollama-dot').className = 'status-dot err';
+    $('ollama-label').textContent = 'Dashboard API Error';
+    $('status-content').innerHTML = `<div class="empty" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// --- Models ---
+async function loadModels() {
+  try {
+    const res = await fetch(API + '/api/models');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    const models = d.models || [];
+    if (!models.length) {
+      $('models-content').innerHTML = '<div class="empty">No models loaded</div>';
+      return;
+    }
+    let html = '';
+    for (const m of models) {
+      html += `<div class="model-row">
+        <span class="name">${m.name}</span>
+        <span class="size">${fmtModelSize(m.size)}</span>
+        <span class="badge blue">${m.details?.family || '—'}</span>
+      </div>`;
+    }
+    $('models-content').innerHTML = html;
+  } catch (e) {
+    $('models-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+// --- Context Monitor ---
+async function loadContextMonitor() {
+  try {
+    const res = await fetch(API + '/api/context-monitor');
+    const d = await res.json();
+    const s = d.session || {};
+    const parts = [];
+
+    // 1. Context window progress bar
+    if (s.error) {
+      parts.push('<div style="margin-bottom:16px">');
+      parts.push('<div style="font-size:13px;color:var(--text2);margin-bottom:8px">' + escHtml(s.error) + '</div>');
+      parts.push('<div class="ctx-progress"><div class="ctx-progress-fill green" style="width:0%"></div><div class="ctx-progress-label">No session data</div></div>');
+      parts.push('</div>');
+    } else {
+      const pct = Math.round(s.percentUsed || 0);
+      const colorClass = pct < 60 ? 'green' : pct < 80 ? 'yellow' : 'red';
+      const totalK = (s.totalTokens / 1000).toFixed(0);
+      const ctxK = (s.contextTokens / 1000).toFixed(0);
+      parts.push('<div style="margin-bottom:16px">');
+      parts.push('<div class="ctx-progress">');
+      parts.push('<div class="ctx-progress-fill ' + colorClass + '" style="width:' + pct + '%"></div>');
+      parts.push('<div class="ctx-progress-label">' + ctxK + 'k / ' + totalK + 'k tokens (' + pct + '%)</div>');
+      parts.push('</div>');
+      if (pct >= 80) {
+        parts.push('<div style="margin-top:6px;font-size:12px;color:var(--red);font-weight:600">Warning: Context window critically full — compaction imminent</div>');
+      } else if (pct >= 60) {
+        parts.push('<div style="margin-top:6px;font-size:12px;color:var(--yellow)">Context window filling up</div>');
+      }
+      parts.push('</div>');
+    }
+
+    // 2. Session info
+    if (!s.error) {
+      parts.push('<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:16px">');
+      parts.push('<div class="kv"><span class="k">Model</span><span class="badge blue">' + escHtml(s.model) + '</span></div>');
+      parts.push('<div class="kv"><span class="k">Input Tokens</span><span>' + (s.inputTokens || 0).toLocaleString() + '</span></div>');
+      parts.push('<div class="kv"><span class="k">Output Tokens</span><span>' + (s.outputTokens || 0).toLocaleString() + '</span></div>');
+      parts.push('<div class="kv"><span class="k">Remaining</span><span>' + (s.remainingTokens || 0).toLocaleString() + '</span></div>');
+      parts.push('</div>');
+    }
+
+    // 3. Injected files table
+    parts.push('<h3 style="margin-bottom:8px">Injected Files</h3>');
+    parts.push('<table class="ctx-table"><thead><tr><th>File</th><th class="num">Size</th><th class="num">Est. Tokens</th></tr></thead><tbody>');
+    for (const f of d.injectedFiles || []) {
+      if (f.missing) {
+        parts.push('<tr><td class="missing">' + escHtml(f.name) + '</td><td class="num missing">—</td><td class="num missing">—</td></tr>');
+      } else {
+        parts.push('<tr><td>' + escHtml(f.name) + '</td><td class="num">' + fmt(f.bytes) + '</td><td class="num">' + f.estTokens.toLocaleString() + '</td></tr>');
+      }
+    }
+    const t = d.injectedTotal || {};
+    parts.push('<tr style="font-weight:600"><td>Total</td><td class="num">' + fmt(t.bytes || 0) + '</td><td class="num">' + (t.estTokens || 0).toLocaleString() + '</td></tr>');
+    parts.push('</tbody></table>');
+
+    // 4. Memory footprint
+    const m = d.memory || {};
+    parts.push('<h3 style="margin-top:16px;margin-bottom:8px">Memory Footprint</h3>');
+    parts.push('<div style="background:var(--bg3);border-radius:var(--radius);padding:12px">');
+    parts.push('<div class="kv"><span class="k">Daily Memory Files</span><span>' + (m.dailyFiles || 0) + ' .md files</span></div>');
+    if (m.memoryMd) {
+      parts.push('<div class="kv"><span class="k">MEMORY.md</span><span>' + m.memoryMd.lines + ' lines · ' + fmt(m.memoryMd.bytes) + '</span></div>');
+    } else {
+      parts.push('<div class="kv"><span class="k">MEMORY.md</span><span style="color:var(--text2)">Not found</span></div>');
+    }
+    if (m.todayLog) {
+      parts.push('<div class="kv"><span class="k">Today\'s Log</span><span>' + fmt(m.todayLog.bytes) + '</span></div>');
+    } else {
+      parts.push('<div class="kv"><span class="k">Today\'s Log</span><span style="color:var(--text2)">No entries yet</span></div>');
+    }
+    parts.push('</div>');
+
+    // NOTE: This dashboard is an internal-only admin tool served on localhost.
+    // All data comes from local system commands (clawdbot status) and local file reads.
+    // No user-supplied or external content is rendered — escHtml is used for defense in depth.
+    $('context-content').innerHTML = parts.join('');
+  } catch (e) {
+    $('context-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+// --- Search ---
+$('topk').addEventListener('input', () => $('topk-val').textContent = $('topk').value);
+$('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+async function doSearch() {
+  const q = $('search-input').value.trim();
+  if (!q) return;
+  const sources = [];
+  if ($('src-memory').checked) sources.push('memory');
+  if ($('src-chat').checked) sources.push('chat');
+  if ($('src-telegram').checked) sources.push('telegram');
+  const topK = $('topk').value;
+
+  $('search-results').innerHTML = '<span class="loading-text"><span class="spinner"></span> Searching...</span>';
+  logOp(`Search: "${q}" [${sources.join(',')}] top-${topK}`);
+
+  try {
+    const res = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}&sources=${sources.join(',')}&topK=${topK}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    if (!d.results?.length) {
+      $('search-results').innerHTML = '<div class="empty">No results found</div>';
+      return;
+    }
+    let html = '';
+    for (const r of d.results) {
+      const srcMap = { memory: ['📝', 'purple'], chat: ['💬', 'blue'], telegram: ['📱', 'orange'] };
+      const [icon, color] = srcMap[r.source] || ['❓', 'yellow'];
+      const meta = r.meta || {};
+      let detail = '';
+      if (r.source === 'memory') detail = `${meta.file || ''}:${meta.startLine || ''}`;
+      else if (r.source === 'chat') detail = meta.sessionId ? `session:${meta.sessionId.slice(0,8)}` : '';
+      else detail = meta.startTs ? new Date(meta.startTs).toLocaleString() : '';
+
+      html += `<div class="result-item" onclick="this.querySelector('.preview').classList.toggle('expanded')">
+        <div class="meta">
+          <span class="score">${r.score.toFixed(3)}</span>
+          <span class="badge ${color}">${icon} ${r.source}</span>
+          <span style="color:var(--text2)">${detail}</span>
+        </div>
+        <div class="preview">${escHtml(r.text)}</div>
+      </div>`;
+    }
+    $('search-results').innerHTML = html;
+    logOp(`Found ${d.results.length} results for "${q}"`);
+  } catch (e) {
+    $('search-results').innerHTML = `<div class="empty" style="color:var(--red)">Error: ${e.message}</div>`;
+    logOp(`Search error: ${e.message}`);
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+// --- Jobs ---
+async function loadJobs() {
+  try {
+    const res = await fetch(API + '/api/jobs');
+    const d = await res.json();
+    if (!d.hasData) {
+      $('jobs-content').innerHTML = '<div class="empty">No ingestion data yet. Run <code>localllm chat ingest</code></div>';
+      return;
+    }
+    let html = '<div class="job-grid">';
+    if (d.filesIndexed != null) html += `<div class="stat"><span class="label">Files Indexed</span><span class="value">${d.filesIndexed}</span></div>`;
+    if (d.chatSessions != null) html += `<div class="stat"><span class="label">Chat Sessions</span><span class="value">${d.chatSessions}</span></div>`;
+    if (d.chatChunks != null) html += `<div class="stat"><span class="label">Chat Chunks</span><span class="value">${d.chatChunks.toLocaleString()}</span></div>`;
+    if (d.telegramChunks != null) html += `<div class="stat"><span class="label">Telegram Chunks</span><span class="value">${d.telegramChunks.toLocaleString()}</span></div>`;
+    html += '</div>';
+    if (d.lastUpdate) html += `<div style="margin-top:8px;font-size:12px;color:var(--text2)">Last update: ${d.lastUpdate}</div>`;
+    $('jobs-content').innerHTML = html;
+  } catch (e) {
+    $('jobs-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+async function triggerReindex() {
+  logOp('Reindex started...');
+  try {
+    const res = await fetch(API + '/api/reindex', { method: 'POST' });
+    const d = await res.json();
+    logOp(`Reindex triggered: source=${d.source}`);
+  } catch (e) {
+    logOp(`Reindex error: ${e.message}`);
+  }
+}
+
+// --- Clawdbot Behavior ---
+async function loadClawdbot() {
+  try {
+    const res = await fetch(API + '/api/clawdbot/config');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    const mem = d.memorySearch || {};
+    const comp = d.compaction || {};
+    const flush = comp.memoryFlush || {};
+
+    let html = '<div class="grid grid-2" style="gap:16px">';
+
+    // Left: Memory Search
+    html += '<div>';
+    html += '<h3 style="margin-bottom:10px">🔍 Memory Search</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgToggle('Enabled', 'cb-mem-enabled', mem.enabled !== false);
+    html += cfgRow('Provider', 'cb-mem-provider', mem.provider || 'openai', 'text');
+    html += cfgRow('Model', 'cb-mem-model', mem.model || '', 'text');
+    html += cfgRow('Fallback', 'cb-mem-fallback', mem.fallback || 'local', 'text');
+    html += cfgRow('Sources', 'cb-mem-sources', (mem.sources || []).join(', '), 'text');
+    html += '</div>';
+
+    html += '<h3 style="margin-bottom:10px">🌐 Remote Embedding</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    const remote = mem.remote || {};
+    html += cfgRow('Base URL', 'cb-mem-url', remote.baseUrl || '', 'text');
+    html += cfgRow('API Key', 'cb-mem-apikey', remote.apiKey || '', 'text');
+    html += '</div>';
+
+    html += '<h3 style="margin-bottom:10px">⚡ Features</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgToggle('Vector Store', 'cb-mem-vector', mem.store?.vector?.enabled !== false);
+    html += cfgToggle('Hybrid Query', 'cb-mem-hybrid', mem.query?.hybrid?.enabled !== false);
+    html += cfgToggle('Cache', 'cb-mem-cache', mem.cache?.enabled !== false);
+    html += cfgToggle('Watch Sync', 'cb-mem-watch', mem.sync?.watch !== false);
+    html += cfgToggle('Session Memory', 'cb-mem-session', mem.experimental?.sessionMemory === true);
+    html += '</div>';
+    html += '</div>';
+
+    // Right: Compaction
+    html += '<div>';
+    html += '<h3 style="margin-bottom:10px">📦 Compaction</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgToggle('Memory Flush', 'cb-comp-flush', flush.enabled !== false);
+    html += `<div style="font-size:12px;color:var(--text2);margin-top:4px">Flush trigger & reserve are controlled by sliders below ↓</div>`;
+    html += '</div>';
+
+    html += '<h3 style="margin-bottom:10px">💬 Flush Prompts</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += `<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">User Prompt</label>
+      <textarea id="cb-comp-prompt" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--text);font-size:12px;resize:vertical;outline:none;font-family:inherit"
+      onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${escHtml(flush.prompt || '')}</textarea></div>`;
+    html += `<div><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">System Prompt</label>
+      <textarea id="cb-comp-sysprompt" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--text);font-size:12px;resize:vertical;outline:none;font-family:inherit"
+      onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${escHtml(flush.systemPrompt || '')}</textarea></div>`;
+    html += '</div>';
+
+    // Model & Flush Tuning
+    html += '<h3 style="margin-bottom:10px">🎛️ Model & Flush Tuning</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+
+    const MODELS = {
+      'anthropic/claude-opus-4-5':   { label: 'Claude Opus 4.5',   ctx: 200000, out: 32000 },
+      'anthropic/claude-sonnet-4-5': { label: 'Claude Sonnet 4.5', ctx: 200000, out: 16384 },
+      'anthropic/claude-sonnet-4-20250514': { label: 'Claude Sonnet 4', ctx: 200000, out: 16384 },
+      'anthropic/claude-haiku-3-5':  { label: 'Claude Haiku 3.5',  ctx: 200000, out: 8192 },
+    };
+
+    const currentModel = d.model?.primary || 'anthropic/claude-opus-4-5';
+    const currentSpec = MODELS[currentModel] || { ctx: 200000, out: 32000 };
+
+    html += `<div class="kv" style="align-items:center"><span class="k">Primary Model</span>
+      <select id="cb-model" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-size:13px;outline:none"
+        onchange="updateFlushSliders()">`;
+    for (const [id, spec] of Object.entries(MODELS)) {
+      html += `<option value="${id}" ${id === currentModel ? 'selected' : ''}>${spec.label} (${(spec.ctx/1000)}K ctx)</option>`;
+    }
+    html += `</select></div>`;
+
+    html += `<div class="kv"><span class="k">Workspace</span><span style="font-size:12px">${d.workspace || '?'}</span></div>`;
+    html += `<div class="kv"><span class="k">Thinking</span><span>${d.thinkingDefault || 'off'}</span></div>`;
+
+    // Context visualization
+    html += `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">`;
+    html += `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Context Budget</div>`;
+    html += `<div id="ctx-bar" style="position:relative;height:28px;background:var(--bg);border-radius:4px;overflow:hidden;margin-bottom:4px"></div>`;
+    html += `<div id="ctx-legend" style="font-size:11px;color:var(--text2)"></div>`;
+    html += `</div>`;
+
+    // Flush threshold slider
+    const flushVal = comp.memoryFlush?.softThresholdTokens || 160000;
+    html += `<div style="margin-top:12px"><label style="font-size:12px;color:var(--text2)">Flush Trigger</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="range" id="cb-flush-slider" min="50" max="95" value="${Math.round(flushVal/currentSpec.ctx*100)}"
+          style="flex:1;accent-color:var(--accent)" oninput="updateFlushDisplay()">
+        <span id="cb-flush-pct" style="font-size:14px;font-weight:600;min-width:40px;text-align:right">${Math.round(flushVal/currentSpec.ctx*100)}%</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:2px">
+        <span>50% (conservative)</span><span>95% (aggressive)</span>
+      </div>
+      <div id="cb-flush-tokens" style="font-size:12px;color:var(--text2);margin-top:4px">${flushVal.toLocaleString()} tokens</div>
+    </div>`;
+
+    // Reserve floor slider
+    const reserveVal = comp.reserveTokensFloor || 30000;
+    html += `<div style="margin-top:12px"><label style="font-size:12px;color:var(--text2)">Reserve Floor (for flush writes)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="range" id="cb-reserve-slider" min="10000" max="50000" step="5000" value="${reserveVal}"
+          style="flex:1;accent-color:var(--yellow)" oninput="updateFlushDisplay()">
+        <span id="cb-reserve-val" style="font-size:14px;font-weight:600;min-width:60px;text-align:right">${(reserveVal/1000).toFixed(0)}K</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:2px">
+        <span>10K (minimal)</span><span>50K (generous)</span>
+      </div>
+    </div>`;
+
+    html += '</div>';
+
+    html += '</div>';
+    html += '</div>';
+
+    // Save button
+    html += `<div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn" onclick="saveClawdbot()">💾 Save & Apply</button>
+      <span id="cb-save-status" style="font-size:13px;color:var(--text2);align-self:center"></span>
+    </div>`;
+
+    $('clawdbot-content').innerHTML = html;
+    // Render context bar after DOM is ready
+    setTimeout(updateFlushDisplay, 50);
+  } catch (e) {
+    $('clawdbot-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+function cfgToggle(label, id, checked) {
+  return `<div class="kv" style="align-items:center">
+    <span class="k">${label}</span>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input id="${id}" type="checkbox" ${checked ? 'checked' : ''} style="accent-color:var(--accent);width:16px;height:16px">
+      <span style="font-size:12px;color:var(--text2)">${checked ? 'On' : 'Off'}</span>
+    </label>
+  </div>`;
+}
+
+const MODEL_SPECS = {
+  'anthropic/claude-opus-4-5':   { ctx: 200000, out: 32000 },
+  'anthropic/claude-sonnet-4-5': { ctx: 200000, out: 16384 },
+  'anthropic/claude-sonnet-4-20250514': { ctx: 200000, out: 16384 },
+  'anthropic/claude-haiku-3-5':  { ctx: 200000, out: 8192 },
+};
+
+function getSelectedModelSpec() {
+  const sel = $('cb-model');
+  if (!sel) return { ctx: 200000, out: 32000 };
+  return MODEL_SPECS[sel.value] || { ctx: 200000, out: 32000 };
+}
+
+function updateFlushSliders() {
+  updateFlushDisplay();
+}
+
+function updateFlushDisplay() {
+  const spec = getSelectedModelSpec();
+  const pct = parseInt($('cb-flush-slider').value);
+  const tokens = Math.round(spec.ctx * pct / 100);
+  const reserve = parseInt($('cb-reserve-slider').value);
+
+  $('cb-flush-pct').textContent = pct + '%';
+  $('cb-flush-tokens').textContent = tokens.toLocaleString() + ' tokens';
+  $('cb-reserve-val').textContent = (reserve / 1000).toFixed(0) + 'K';
+
+  // Context bar visualization
+  const sysPct = 10; // ~10% for system prompt + workspace files
+  const reservePct = Math.round(reserve / spec.ctx * 100);
+  const flushPct = pct;
+  const usablePct = flushPct - sysPct;
+
+  const bar = $('ctx-bar');
+  if (bar) {
+    bar.innerHTML = `
+      <div style="position:absolute;left:0;top:0;bottom:0;width:${sysPct}%;background:var(--purple);opacity:.7" title="System prompt"></div>
+      <div style="position:absolute;left:${sysPct}%;top:0;bottom:0;width:${usablePct}%;background:var(--green);opacity:.5" title="Usable conversation"></div>
+      <div style="position:absolute;left:${flushPct}%;top:0;bottom:0;width:${reservePct}%;background:var(--yellow);opacity:.5" title="Reserve for flush"></div>
+      <div style="position:absolute;left:${flushPct + reservePct}%;top:0;bottom:0;right:0;background:var(--red);opacity:.3" title="Hard limit buffer"></div>
+      <div style="position:absolute;left:${flushPct}%;top:0;bottom:0;width:2px;background:var(--yellow)" title="Flush trigger"></div>
+    `;
+  }
+  const legend = $('ctx-legend');
+  if (legend) {
+    const usableK = Math.round((spec.ctx * usablePct / 100) / 1000);
+    legend.innerHTML = `<span style="color:var(--purple)">■</span> System ~${sysPct}% &nbsp; <span style="color:var(--green)">■</span> Usable ~${usableK}K tokens &nbsp; <span style="color:var(--yellow)">■</span> Reserve ${(reserve/1000).toFixed(0)}K &nbsp; <span style="color:var(--red)">■</span> Buffer`;
+  }
+}
+
+async function saveClawdbot() {
+  const spec = getSelectedModelSpec();
+  const flushPct = parseInt($('cb-flush-slider').value);
+  const flushTokens = Math.round(spec.ctx * flushPct / 100);
+  const reserveTokens = parseInt($('cb-reserve-slider').value);
+
+  const patch = {
+    model: {
+      primary: $('cb-model').value,
+    },
+    memorySearch: {
+      enabled: $('cb-mem-enabled').checked,
+      provider: $('cb-mem-provider').value,
+      model: $('cb-mem-model').value,
+      fallback: $('cb-mem-fallback').value,
+      sources: $('cb-mem-sources').value.split(',').map(s => s.trim()).filter(Boolean),
+      remote: {
+        baseUrl: $('cb-mem-url').value,
+        apiKey: $('cb-mem-apikey').value,
+      },
+      experimental: {
+        sessionMemory: $('cb-mem-session').checked,
+      },
+      store: { vector: { enabled: $('cb-mem-vector').checked } },
+      query: { hybrid: { enabled: $('cb-mem-hybrid').checked } },
+      cache: { enabled: $('cb-mem-cache').checked },
+      sync: { watch: $('cb-mem-watch').checked },
+    },
+    compaction: {
+      reserveTokensFloor: reserveTokens,
+      memoryFlush: {
+        enabled: $('cb-comp-flush').checked,
+        softThresholdTokens: flushTokens,
+        prompt: $('cb-comp-prompt').value,
+        systemPrompt: $('cb-comp-sysprompt').value,
+      },
+    },
+  };
+
+  const statusEl = $('cb-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = 'var(--text2)';
+  logOp('Saving Clawdbot config...');
+
+  try {
+    const res = await fetch(API + '/api/clawdbot/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    statusEl.textContent = '✅ Saved! Restart gateway to apply.';
+    statusEl.style.color = 'var(--green)';
+    logOp('Clawdbot config saved');
+    setTimeout(() => { statusEl.textContent = ''; }, 8000);
+  } catch (e) {
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.style.color = 'var(--red)';
+    logOp(`Clawdbot config error: ${e.message}`);
+  }
+}
+
+// --- Memory ---
+async function loadMemory() {
+  try {
+    const [memRes, cfgRes] = await Promise.all([
+      fetch(API + '/api/memory'),
+      fetch(API + '/api/config'),
+    ]);
+    const d = await memRes.json();
+    const cfg = await cfgRes.json();
+    const active = cfg.active;
+
+    let html = '<div class="grid grid-2" style="gap:16px">';
+
+    // Left: Pipeline & Config (editable)
+    html += '<div>';
+
+    // Pipeline
+    html += '<h3 style="margin-bottom:10px">📊 Pipeline</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Sources → Chunking → Embedding → SQLite</div>';
+    for (const s of d.pipeline.sources) {
+      html += `<div class="kv"><span class="k">${s.name}</span><span style="font-size:12px;color:var(--text2)">${s.description}</span></div>`;
+    }
+    html += '</div>';
+
+    // Embedding config (editable)
+    html += '<h3 style="margin-bottom:10px">⚙️ Embedding Config</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgRow('Embed Model', 'cfg-embed-model', active.models.embed, 'text');
+    html += cfgRow('Dimensions', 'cfg-embed-dim', active.embedding.dimension, 'number');
+    html += cfgRow('Chunk Size', 'cfg-chunk-size', active.embedding.chunkSize, 'number', 'chars');
+    html += cfgRow('Chunk Overlap', 'cfg-chunk-overlap', active.embedding.chunkOverlap, 'number', 'chars');
+    html += '</div>';
+
+    // Models config (editable)
+    html += '<h3 style="margin-bottom:10px">🤖 Models</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgRow('Triage', 'cfg-model-triage', active.models.triage, 'text');
+    html += cfgRow('Code', 'cfg-model-code', active.models.code, 'text');
+    html += cfgRow('Reasoning', 'cfg-model-reasoning', active.models.reasoning, 'text');
+    html += cfgRow('Embed Fast', 'cfg-model-embed-fast', active.models.embedFast, 'text');
+    html += '</div>';
+
+    // Watcher config (editable)
+    html += '<h3 style="margin-bottom:10px">👁️ Watcher Config</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += `<div class="kv"><span class="k">Daemon</span><span style="font-size:12px">com.localllm.chat-ingest</span></div>`;
+    html += cfgRow('File Poll', 'cfg-watch-poll', active.watcher?.pollInterval || 5000, 'number', 'ms');
+    html += cfgRow('Debounce', 'cfg-watch-debounce', active.watcher?.debounce || 2000, 'number', 'ms');
+    html += cfgRow('New File Scan', 'cfg-watch-scan', active.watcher?.newFileScan || 30000, 'number', 'ms');
+    html += '</div>';
+
+    // Thresholds
+    html += '<h3 style="margin-bottom:10px">📏 Thresholds</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+    html += cfgRow('Confidence', 'cfg-thresh-confidence', active.thresholds.confidence, 'number');
+    html += cfgRow('Urgency', 'cfg-thresh-urgency', active.thresholds.urgency, 'number');
+    html += '</div>';
+
+    // Save button
+    html += `<div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn" onclick="saveConfig()">💾 Save Config</button>
+      <span id="cfg-save-status" style="font-size:13px;color:var(--text2);align-self:center"></span>
+    </div>`;
+
+    html += '</div>';
+
+    // Right: Files (read-only)
+    html += '<div>';
+
+    if (d.memoryMd) {
+      html += '<h3 style="margin-bottom:10px">📝 MEMORY.md</h3>';
+      html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+      html += `<div class="kv"><span class="k">Lines</span><span>${d.memoryMd.lines}</span></div>`;
+      html += `<div class="kv"><span class="k">Size</span><span>${fmt(d.memoryMd.sizeBytes)}</span></div>`;
+      html += `<div class="kv"><span class="k">Modified</span><span style="font-size:12px">${new Date(d.memoryMd.modified).toLocaleString()}</span></div>`;
+      html += '</div>';
+    }
+
+    if (d.subdirs.length) {
+      html += '<h3 style="margin-bottom:10px">📁 Subdirectories</h3>';
+      html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+      for (const s of d.subdirs) {
+        html += `<div class="kv"><span class="k">${s.name}/</span><span>${s.fileCount} files</span></div>`;
+      }
+      html += '</div>';
+    }
+
+    html += '<h3 style="margin-bottom:10px">📄 Recent Files</h3>';
+    html += '<div style="background:var(--bg3);border-radius:var(--radius);padding:12px;max-height:300px;overflow-y:auto">';
+    for (const f of d.files.slice(0, 15)) {
+      const date = new Date(f.modified).toLocaleDateString();
+      html += `<div class="kv"><span class="k" style="font-size:12px">${f.name}</span><span style="font-size:12px;color:var(--text2)">${fmt(f.sizeBytes)} · ${date}</span></div>`;
+    }
+    html += '</div>';
+
+    html += '</div>';
+    html += '</div>';
+
+    $('memory-content').innerHTML = html;
+  } catch (e) {
+    $('memory-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+function cfgRow(label, id, value, type, suffix) {
+  const sfx = suffix ? `<span style="font-size:12px;color:var(--text2);margin-left:4px">${suffix}</span>` : '';
+  const step = type === 'number' && String(value).includes('.') ? 'step="0.1"' : '';
+  return `<div class="kv" style="align-items:center">
+    <span class="k">${label}</span>
+    <div style="display:flex;align-items:center">
+      <input id="${id}" type="${type}" value="${value}" ${step}
+        style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:13px;width:${type==='number'?'100px':'180px'};text-align:right;outline:none"
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+      />${sfx}
+    </div>
+  </div>`;
+}
+
+async function saveConfig() {
+  const patch = {
+    models: {
+      embed: $('cfg-embed-model').value,
+      triage: $('cfg-model-triage').value,
+      code: $('cfg-model-code').value,
+      reasoning: $('cfg-model-reasoning').value,
+      embedFast: $('cfg-model-embed-fast').value,
+    },
+    embedding: {
+      dimension: parseInt($('cfg-embed-dim').value),
+      chunkSize: parseInt($('cfg-chunk-size').value),
+      chunkOverlap: parseInt($('cfg-chunk-overlap').value),
+    },
+    watcher: {
+      pollInterval: parseInt($('cfg-watch-poll').value),
+      debounce: parseInt($('cfg-watch-debounce').value),
+      newFileScan: parseInt($('cfg-watch-scan').value),
+    },
+    thresholds: {
+      confidence: parseFloat($('cfg-thresh-confidence').value),
+      urgency: parseInt($('cfg-thresh-urgency').value),
+    },
+  };
+
+  const statusEl = $('cfg-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = 'var(--text2)';
+  logOp('Saving config...');
+
+  try {
+    const res = await fetch(API + '/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    statusEl.textContent = '✅ Saved! Restart daemon to apply watcher changes.';
+    statusEl.style.color = 'var(--green)';
+    logOp('Config saved to config.local.json');
+    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+  } catch (e) {
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.style.color = 'var(--red)';
+    logOp(`Config save error: ${e.message}`);
+  }
+}
+
+// --- Daemons ---
+async function loadDaemons() {
+  try {
+    const res = await fetch(API + '/api/daemons');
+    const daemons = await res.json();
+    if (!daemons.length) { $('daemons-content').innerHTML = '<div class="empty">No daemons configured</div>'; return; }
+    let html = '';
+    for (const d of daemons) {
+      const badge = d.running ? 'green' : 'red';
+      const status = d.running ? `Running (PID ${d.pid})` : 'Stopped';
+      html += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span class="status-dot ${d.running ? 'ok' : 'err'}"></span>
+          <span style="font-weight:600;font-size:15px">${d.name}</span>
+          <span class="badge ${badge}">${status}</span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn sm outline" onclick="viewDaemonLogs('${d.label}','out')">📄 Stdout</button>
+            <button class="btn sm outline" onclick="viewDaemonLogs('${d.label}','err')">⚠️ Stderr</button>
+            <button class="btn sm danger" onclick="restartDaemon('${d.label}')">🔄 Restart</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text2)">${d.label}</div>
+        <div id="daemon-logs-${d.label.replace(/\./g,'-')}" style="margin-top:8px;display:none;background:var(--bg);border-radius:var(--radius);padding:10px;max-height:300px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:1.6;color:var(--text2)"></div>
+      </div>`;
+    }
+    $('daemons-content').innerHTML = html;
+  } catch (e) {
+    $('daemons-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+async function viewDaemonLogs(label, src) {
+  const elId = 'daemon-logs-' + label.replace(/\./g, '-');
+  const el = $(elId);
+  if (el.style.display === 'block' && el.dataset.src === src) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.dataset.src = src;
+  el.innerHTML = '<span class="loading-text"><span class="spinner"></span> Loading...</span>';
+  const srcLabel = src === 'err' ? 'stderr' : 'stdout';
+  logOp(`Fetching ${srcLabel} logs for ${label}`);
+  try {
+    const res = await fetch(`${API}/api/daemons/${encodeURIComponent(label)}/logs?src=${src}&lines=50`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    if (!d.lines.length) { el.innerHTML = '<div style="color:var(--text2)">No logs</div>'; return; }
+    el.innerHTML = d.lines.map(l => {
+      const color = l.src === 'err'
+        ? (l.text.includes('[ERROR]') ? 'var(--red)' : 'var(--yellow)')
+        : l.text.includes('[chunk]') ? 'var(--green)' : 'var(--text2)';
+      return `<div style="color:${color};border-bottom:1px solid rgba(48,54,61,.5);padding:2px 0">${escHtml(l.text)}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+async function restartDaemon(label) {
+  logOp(`Restarting daemon: ${label}`);
+  try {
+    const res = await fetch(`${API}/api/daemons/${encodeURIComponent(label)}/restart`, { method: 'POST' });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    logOp(`Daemon restarted: ${label}`);
+    setTimeout(loadDaemons, 2000);
+  } catch (e) {
+    logOp(`Restart error: ${e.message}`);
+  }
+}
+
+// --- Packages ---
+const PKG_ICONS = {
+  embeddings: '🔢', classifier: '🏷️', triage: '🚦',
+  search: '🔍', transcriber: '🎙️', 'chat-ingest': '💬'
+};
+const PKG_DESC = {
+  embeddings: 'Vector embeddings via Ollama',
+  classifier: 'Email classification (rules + LLM)',
+  triage: 'Urgency rating & task routing',
+  search: 'Semantic search over markdown',
+  transcriber: 'Audio transcription (whisper.cpp)',
+  'chat-ingest': 'Chat transcript ingestion & search'
+};
+
+async function loadPackages() {
+  try {
+    const res = await fetch(API + '/api/packages');
+    const pkgs = await res.json();
+    let html = '';
+    for (const p of pkgs) {
+      const icon = PKG_ICONS[p.name] || '📦';
+      html += `<div class="card pkg-card">
+        <div class="pkg-header">
+          <span style="font-size:20px">${icon}</span>
+          <span class="pkg-name">${p.name}</span>
+          <span class="badge ${p.exists ? 'green' : 'red'}">${p.exists ? 'OK' : 'Missing'}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text2)">${PKG_DESC[p.name] || ''}</div>
+        ${p.version ? `<div style="font-size:11px;color:var(--text2)">v${p.version}</div>` : ''}
+      </div>`;
+    }
+    $('packages-grid').innerHTML = html;
+  } catch (e) {
+    $('packages-grid').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+// --- WebSocket ---
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}`);
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'status') {
+        const dot = $('ollama-dot');
+        const lbl = $('ollama-label');
+        if (msg.ollama.healthy) { dot.className = 'status-dot ok'; lbl.textContent = 'Ollama Online'; }
+        else { dot.className = 'status-dot err'; lbl.textContent = 'Ollama Offline'; }
+        if (msg.timestamp) $('last-update').textContent = 'Updated ' + new Date(msg.timestamp).toLocaleTimeString();
+        // Update models from WS
+        if (msg.models?.length) {
+          let html = '';
+          for (const m of msg.models) {
+            html += `<div class="model-row"><span class="name">${m.name}</span><span class="size">${fmtModelSize(m.size)}</span><span class="badge blue">${m.details?.family || '—'}</span></div>`;
+          }
+          $('models-content').innerHTML = html;
+        }
+      }
+    } catch {}
+  };
+  ws.onclose = () => setTimeout(connectWs, 5000);
+  ws.onerror = () => ws.close();
+}
+
+// --- Init ---
+(async () => {
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
+  connectWs();
+  // Refresh context monitor every 30s
+  setInterval(loadContextMonitor, 30000);
+  // Refresh full status every 60s
+  setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); }, 60000);
+})();
+</script>
+</body>
+</html>
