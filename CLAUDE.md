@@ -1,0 +1,537 @@
+# CLAUDE.md — LocalLLM Hub
+
+> Comprehensive project context for AI agents. Read this before making any changes.
+
+## Project Overview
+
+**LocalLLM Hub** is a unified local AI infrastructure for Apple M4 Max (36GB unified memory). It consolidates all local AI capabilities into a single Node.js workspace: embeddings, classification, triage, transcription, semantic search, chat ingestion, and a monitoring dashboard.
+
+**Owner:** Kat (kqb on GitHub)
+**Repo:** `github.com:kqb/localllm-hub` (private)
+**License:** Private / personal use
+**Runtime:** Node.js v25.4.0 on macOS (arm64, Apple Silicon)
+
+---
+
+## Hardware & Environment
+
+| Component | Spec |
+|-----------|------|
+| Machine | MacBook Pro, Apple M4 Max |
+| Memory | 36GB unified (shared CPU/GPU) |
+| Available for models | ~27GB after OS overhead |
+| Ollama | v0.13.5 at `http://127.0.0.1:11434` |
+| Node.js | v25.4.0 |
+| SQLite | via `better-sqlite3` (native addon) |
+| whisper.cpp | `/opt/homebrew/bin/whisper-cpp` |
+
+**CRITICAL: Always use `127.0.0.1` not `localhost`.** macOS resolves `localhost` to `::1` (IPv6) first. Ollama binds IPv4 only. Using `localhost` causes `HeadersTimeoutError` in Node.js undici.
+
+---
+
+## Directory Structure
+
+```
+localllm-hub/
+├── cli.js                      # Root CLI (Commander.js, lazy imports)
+├── package.json                # npm workspace root
+├── config.local.json           # Runtime config overrides (gitignored if sensitive)
+├── CLAUDE.md                   # THIS FILE — agent context
+├── ARCHITECTURE.md             # Detailed architecture diagrams + package docs
+├── INTEGRATION.md              # Clawdbot integration plan
+│
+├── shared/                     # Shared utilities (NOT a package)
+│   ├── ollama.js               #   Single Ollama client wrapper
+│   ├── config.js               #   Config with deep-merge overrides from config.local.json
+│   └── logger.js               #   Leveled stderr logger (LOG_LEVEL=debug|info|warn|error)
+│
+├── packages/                   # npm workspaces
+│   ├── embeddings/             #   Vector embedding: embed(), batchEmbed(), compare()
+│   │   ├── index.js            #     Model: mxbai-embed-large (1024-dim)
+│   │   ├── cli.js              #     CLI: embed, batch-embed, compare
+│   │   └── package.json
+│   │
+│   ├── classifier/             #   Email classifier: rules-first, LLM fallback
+│   │   ├── index.js            #     classify() → { category, confidence, method }
+│   │   ├── rules.js            #     12 rule categories (junk, bills, jobs, etc.)
+│   │   ├── llm.js              #     qwen2.5:7b fallback for unknowns
+│   │   ├── cli.js
+│   │   └── package.json
+│   │
+│   ├── triage/                 #   Urgency rating (1-5) + local/API routing
+│   │   ├── index.js            #     rateUrgency(), routeTask()
+│   │   ├── cli.js
+│   │   └── package.json
+│   │
+│   ├── transcriber/            #   whisper.cpp audio transcription
+│   │   ├── index.js            #     transcribe(), batchTranscribe()
+│   │   ├── cli.js
+│   │   └── package.json
+│   │
+│   ├── search/                 #   Semantic search over markdown files
+│   │   ├── index.js            #     search() with cosine similarity
+│   │   ├── indexer.js          #     Chunk + embed + SQLite storage
+│   │   ├── cli.js              #     search <query>, reindex --source --db
+│   │   └── package.json
+│   │
+│   ├── chat-ingest/            #   Session transcript + Telegram ingestion
+│   │   ├── index.js            #     parseTranscriptMessages(), chunkMessages()
+│   │   ├── ingest.js           #     Incremental JSONL ingestion → SQLite + embeddings
+│   │   ├── watcher.js          #     File watcher for live session ingestion
+│   │   ├── telegram.js         #     Telegram export (tdl JSON) parser + ingester
+│   │   ├── unified-search.js   #     Cross-source search (memory + chat + telegram)
+│   │   ├── search.js           #     Chat-specific search
+│   │   ├── cli.js              #     chat ingest, chat search, chat status
+│   │   └── package.json
+│   │
+│   └── dashboard/              #   Web monitoring dashboard
+│       ├── server.js           #     Express + WebSocket server (port 3847)
+│       ├── public/
+│       │   └── index.html      #     Single-page vanilla HTML/CSS/JS dashboard
+│       └── package.json
+│
+├── docs/plans/                 #   Implementation plans
+├── test/                       #   Test harness
+└── data/                       #   Local data (telegram exports, etc.)
+```
+
+---
+
+## Configuration System
+
+**`shared/config.js`** loads defaults then deep-merges overrides from `config.local.json`:
+
+```javascript
+const config = {
+  models: {
+    triage: 'qwen2.5:7b',          // Fast classification + urgency
+    code: 'qwen2.5-coder:32b',     // Code tasks (19GB, loads on demand)
+    reasoning: 'deepseek-r1:32b',  // Complex reasoning (19GB, loads on demand)
+    embed: 'mxbai-embed-large',    // Primary embeddings (1024-dim, 669MB)
+    embedFast: 'nomic-embed-text', // Fallback embeddings (768-dim, 274MB)
+  },
+  thresholds: {
+    confidence: 0.8,    // Above = auto-handle, below = escalate to API
+    urgency: 3,         // Alert threshold (1-5 scale)
+  },
+  paths: {
+    memoryDir: '~/clawd/memory',
+    emailDb: '~/Projects/emailctl/emails.db',
+    searchDb: '~/clawd/scripts/memory.db',
+    chatDb: '~/clawd/scripts/chat-memory.db',
+    sessionsDir: '~/.clawdbot/agents/main/sessions',
+  },
+  ollama: {
+    url: 'http://127.0.0.1:11434',   // MUST be 127.0.0.1, NOT localhost
+    timeout: 30000,
+  },
+  embedding: {
+    dimension: 1024,
+    chunkSize: 500,     // chars per chunk
+    chunkOverlap: 100,  // overlap between chunks
+  },
+  watcher: {
+    pollInterval: 5000,   // ms between file checks
+    debounce: 2000,       // ms debounce after file change
+    newFileScan: 30000,   // ms between scans for new files
+  },
+};
+```
+
+**To override at runtime:** Create/edit `config.local.json` in project root. Only include keys you want to change — they deep-merge with defaults.
+
+---
+
+## Ollama Model Budget
+
+Only 1-2 models fit in memory simultaneously (~27GB available):
+
+| Model | Size | Use Case | Notes |
+|-------|------|----------|-------|
+| mxbai-embed-large | 669MB | Embeddings (1024-dim) | Always-on for search |
+| qwen2.5:7b | 4.7GB | Classification, triage, urgency | Fast inference |
+| nomic-embed-text | 274MB | Fallback embeddings (768-dim) | Lighter alternative |
+| qwen2.5-coder:32b | 19GB | Code tasks | Loads on demand, unloads others |
+| deepseek-r1:32b | 19GB | Complex reasoning | Loads on demand, unloads others |
+
+**Auto-unload:** Ollama unloads models after 5min idle (`OLLAMA_KEEP_ALIVE=5m`).
+**Concurrency:** Avoid parallel inference with different models — causes model swapping thrash.
+**Health check:** `curl -s --max-time 3 http://127.0.0.1:11434/` before batch operations.
+
+---
+
+## Package Details
+
+### embeddings (`packages/embeddings/`)
+
+Generates and compares vector embeddings via Ollama.
+
+```javascript
+const { embed, batchEmbed, compare } = require('@localllm/embeddings');
+const vector = await embed('hello world');         // Float64Array[1024]
+const sim = await compare('cat', 'dog');           // 0.0 - 1.0 (cosine)
+```
+
+- Returns raw float arrays for composability
+- Cosine similarity computed locally (no Ollama roundtrip for comparison)
+- Batch embedding sends all texts in single request
+
+### classifier (`packages/classifier/`)
+
+Two-tier email classification: O(1) rules first → LLM fallback for unknowns.
+
+```javascript
+const { classify } = require('@localllm/classifier');
+const result = await classify({ from: 'noreply@github.com', subject: 'PR merged', body: '...' });
+// → { category: 'notifications', confidence: 1.0, method: 'rules' }
+```
+
+- **12 rule categories:** junk, bills, jobs, finance, health, legal, travel, shopping, subscriptions, newsletters, notifications, personal
+- Rules: domain patterns, subject regex, body keywords. First match wins.
+- LLM fallback: qwen2.5:7b with structured JSON prompt. 2-5s latency.
+- Expected rule hit rate: ~80%
+
+### triage (`packages/triage/`)
+
+Urgency rating + local vs API routing decisions.
+
+```javascript
+const { rateUrgency, routeTask } = require('@localllm/triage');
+const { urgency, reasoning } = await rateUrgency('server is down');
+// → { urgency: 4, reasoning: "..." }
+const { route } = await routeTask('translate this paragraph');
+// → { route: "local", confidence: 0.9 }
+```
+
+- Urgency 1-5 scale (1=can wait days, 5=immediate)
+- Route: "local" (Ollama) or "api" (Claude API)
+- Model: qwen2.5:7b
+
+### search (`packages/search/`)
+
+Semantic search over markdown files using embeddings + SQLite.
+
+- **Chunking:** 500 chars max, 100 char overlap, split on markdown headers
+- **Storage:** Float32 BLOBs in SQLite (4KB per chunk at 1024 dimensions)
+- **Query:** Embed query → cosine similarity against all chunks → top-k results
+- **DB:** `~/clawd/scripts/memory.db`
+- **Performance:** ~500ms query over 390 chunks, ~60s full reindex
+
+```sql
+-- Schema
+CREATE TABLE chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file TEXT NOT NULL, start_line INTEGER, end_line INTEGER,
+  text TEXT NOT NULL, embedding BLOB,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### transcriber (`packages/transcriber/`)
+
+Audio transcription via whisper.cpp (no Python, no API key).
+
+- Formats: .m4a .wav .mp3 .mp4 .ogg .flac
+- Uses `execFile` (not `exec`) — prevents shell injection
+- Batch mode: sequential processing, per-file error handling
+
+### chat-ingest (`packages/chat-ingest/`)
+
+Ingests Clawdbot session transcripts and Telegram exports into searchable SQLite.
+
+**Session JSONL format** (each line):
+```json
+{
+  "type": "message",
+  "id": "uuid",
+  "parentId": "uuid",
+  "timestamp": "ISO-8601",
+  "message": {
+    "role": "user|assistant|toolResult",
+    "content": "string" | [
+      { "type": "text", "text": "..." },
+      { "type": "thinking", "thinking": "...", "thinkingSignature": "..." },
+      { "type": "toolCall", "id": "...", "name": "tool_name", "arguments": {...} },
+      { "type": "image", ... }
+    ],
+    "model": "claude-opus-4-5",
+    "provider": "anthropic",
+    "usage": { "inputTokens": N, "outputTokens": N },
+    "stopReason": "toolUse|endTurn",
+    "timestamp": "ISO-8601"
+  }
+}
+```
+
+For `role=toolResult`:
+```json
+{
+  "role": "toolResult",
+  "content": [{ "type": "text", "text": "..." }],
+  "toolCallId": "uuid",
+  "toolName": "exec",
+  "isError": false,
+  "details": { ... }
+}
+```
+
+**Incremental ingestion:** Tracks file offset in `ingest_progress` table. On re-run, only processes new lines.
+
+**Watcher:** File-level polling (configurable interval), debounced, auto-discovers new .jsonl files.
+
+**Telegram ingestion:** Parses `tdl` export JSON, chunks by conversation windows, embeds, stores in `telegram_chunks` table.
+
+**Unified search:** `unified-search.js` searches across memory, chat, and telegram sources simultaneously.
+
+```sql
+-- chat-memory.db schema
+CREATE TABLE chat_chunks (
+  id INTEGER PRIMARY KEY, session_id TEXT, file TEXT,
+  start_ts TEXT, end_ts TEXT, text TEXT, embedding BLOB
+);
+CREATE TABLE ingest_progress (file TEXT PRIMARY KEY, last_offset INTEGER, last_timestamp TEXT, chunk_count INTEGER);
+CREATE TABLE telegram_chunks (id INTEGER PRIMARY KEY, chat_id TEXT, start_ts TEXT, end_ts TEXT, text TEXT, embedding BLOB);
+```
+
+### dashboard (`packages/dashboard/`)
+
+Real-time web monitoring dashboard. Express + WebSocket + vanilla JS.
+
+**URL:** `http://localhost:3847` (LAN: `http://192.168.1.49:3847`)
+**Start:** `cd ~/Projects/localllm-hub && node cli.js dashboard`
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/status` | Ollama health + DB stats |
+| GET | `/api/models` | Loaded Ollama models |
+| GET | `/api/search?q=&sources=&topk=` | Unified semantic search |
+| POST | `/api/reindex` | Trigger memory reindex |
+| GET | `/api/packages` | Package health grid |
+| GET | `/api/jobs` | Ingestion stats (chat chunks, progress, telegram) |
+| GET | `/api/daemons` | Launchd daemon status |
+| GET | `/api/daemons/:label/logs` | Daemon log files |
+| POST | `/api/daemons/:label/restart` | Restart a daemon |
+| GET | `/api/memory` | Memory file contents |
+| GET | `/api/clawdbot/config` | Clawdbot gateway config |
+| POST | `/api/clawdbot/config` | Update Clawdbot config |
+| GET | `/api/config` | LocalLLM config |
+| POST | `/api/config` | Update LocalLLM config (writes config.local.json) |
+| GET | `/api/context-monitor` | Context window stats (shells to `clawdbot status --json`) |
+| GET | `/api/agents` | Active Clawdbot + tmux sessions |
+| GET | `/api/agents/:key/log?kind=` | Session output (clawdbot history or tmux capture-pane) |
+| POST | `/api/agents/:key/send?kind=` | Send input to session |
+| GET | `/api/chat/sessions` | List JSONL session files |
+| GET | `/api/chat/:id/messages?offset=&limit=` | Paginated conversation history |
+| GET | `/api/chat/:id/messages/stream?last=` | Tail last N messages |
+
+#### WebSocket
+
+Broadcasts every 30s:
+- `type: "status"` — Ollama health + loaded models
+- `type: "agents"` — Active agent session list
+
+#### Frontend Panels (single-page `index.html`)
+
+1. **Status + Models** — Ollama health, loaded models grid
+2. **📊 Context Monitor** — Context window progress bar (color-coded green/yellow/red), injected file token costs, memory footprint, auto-refresh 30s
+3. **🤖 Agent Monitor** — Clawdbot + tmux session list with status dots (green=active, yellow=idle, red=stale), click to expand live output viewer (5s refresh), input bar to send commands
+4. **💬 Conversation** — Full chat history with session selector, toggle buttons for 🧠 Thinking / 🔧 Tools / 📊 Usage, collapsible thinking blocks, expandable tool call arguments, markdown rendering, pagination (load more), live tail (5s polling)
+5. **🔍 Semantic Search** — Multi-source search with sliders and source toggles
+6. **Jobs** — Ingestion stats (chat chunks, telegram chunks, progress)
+7. **Clawdbot Config** — Editable gateway config (writes to clawdbot.json)
+8. **Memory Config** — Editable localllm config (writes to config.local.json)
+9. **Daemons** — Launchd service status with log viewers + restart buttons
+10. **Packages** — Health grid for all localllm packages
+
+#### Dashboard Architecture Patterns
+
+- **Backend:** Express routes return JSON, use `execFile` (not `exec`) for shell commands with timeouts
+- **Frontend:** Vanilla JS, `$()` helper for `document.getElementById`, `escHtml()` for XSS defense
+- **Style:** Dark theme, CSS variables (`--bg`, `--bg2`, `--bg3`, `--text`, `--text2`, `--accent`, `--green`, `--yellow`, `--red`, `--border`, `--radius`)
+- **Cards:** Each panel is `<section class="card" id="X-card"><h2>Title</h2><div id="X-content">Loading...</div></section>`
+- **Data display:** `.kv` class for key-value rows, `.stat` for stat boxes, `.badge` for labels
+- **Init:** `(async () => { await Promise.all([loadX(), loadY(), ...]); connectWs(); setInterval(...); })()`
+- **Refresh:** setInterval per panel (context 30s, agents 10s, status 60s), WebSocket for live updates
+- **Caching:** JSONL parser caches parsed messages by file mtime (`_chatCache` Map)
+
+---
+
+## CLI Commands
+
+All via `node cli.js <command>` or `localllm <command>` (if linked):
+
+| Command | Package | Ollama? | Description |
+|---------|---------|---------|-------------|
+| `embed <text>` | embeddings | ✅ | Generate embedding vector |
+| `batch-embed <texts...>` | embeddings | ✅ | Batch embed multiple texts |
+| `compare <a> <b>` | embeddings | ✅ | Cosine similarity between texts |
+| `classify --from --subject --body` | classifier | Maybe | Classify email (rules first) |
+| `triage <text>` | triage | ✅ | Rate urgency 1-5 |
+| `route <text>` | triage | ✅ | Decide local vs API routing |
+| `search <query>` | search | ✅ | Semantic search over memory |
+| `reindex --source --db` | search | ✅ | Rebuild search index |
+| `transcribe <file>` | transcriber | ❌ | Transcribe audio file |
+| `transcribe-batch <dir>` | transcriber | ❌ | Batch transcribe directory |
+| `chat ingest` | chat-ingest | ✅ | Ingest session transcripts |
+| `chat search <query>` | chat-ingest | ✅ | Search chat history |
+| `chat search-all <query>` | chat-ingest | ✅ | Unified cross-source search |
+| `chat status` | chat-ingest | ❌ | Show indexing stats |
+| `dashboard` | dashboard | ❌ | Start web dashboard (port 3847) |
+
+---
+
+## Clawdbot Integration
+
+LocalLLM Hub is the local AI backend for **Clawdbot (Zoid)** — a personal AI assistant.
+
+**Clawdbot workspace:** `~/clawd/`
+**Clawdbot sessions:** `~/.clawdbot/agents/main/sessions/*.jsonl`
+**Clawdbot config:** `~/.clawdbot/gateway/clawdbot.json`
+
+### How They Connect
+
+1. **Memory search:** Clawdbot's `memory_search` tool uses localllm-hub embeddings via `~/clawd/scripts/semantic-search.js` which queries `memory.db`
+2. **Chat search:** Unified search across memory + chat transcripts + Telegram via `chat-memory.db`
+3. **Dashboard:** Monitors Clawdbot's context window, sessions, and conversation history by reading JSONL files and shelling out to `clawdbot status --json`
+4. **Config editing:** Dashboard can read/write Clawdbot gateway config
+5. **Agent monitoring:** Dashboard lists Clawdbot + tmux sessions, captures output, sends commands
+
+### Launchd Services
+
+| Label | Description | Logs |
+|-------|-------------|------|
+| `com.localllm.chat-ingest` | Auto-indexes new session messages | `~/.clawdbot/logs/chat-ingest.{log,err}` |
+
+---
+
+## Database Files
+
+| Path | Engine | Contents |
+|------|--------|----------|
+| `~/clawd/scripts/memory.db` | SQLite | Memory file chunks + embeddings (search package) |
+| `~/clawd/scripts/chat-memory.db` | SQLite | Chat transcript chunks + Telegram chunks + embeddings |
+
+### Embedding Storage Format
+
+Embeddings stored as Float32 BLOBs (4 bytes per dimension):
+```javascript
+// Write: Float64Array → Float32 buffer (1024 × 4 = 4KB per chunk)
+const buffer = Buffer.alloc(embedding.length * 4);
+for (let i = 0; i < embedding.length; i++) buffer.writeFloatLE(embedding[i], i * 4);
+
+// Read: buffer → Float64Array
+const embedding = [];
+for (let i = 0; i < buffer.length; i += 4) embedding.push(buffer.readFloatLE(i));
+```
+
+**Context limit:** mxbai-embed-large has 512 token context. Text is truncated to 1500 chars, with fallback to 800 chars if embedding fails.
+
+---
+
+## Known Issues & Gotchas
+
+### Must-Know
+
+1. **`127.0.0.1` not `localhost`** — IPv6 resolution breaks Ollama connection on macOS
+2. **`execFile` not `exec`** — All shell commands use `execFile` with argument arrays for security
+3. **Model memory budget** — Only 1-2 models fit in 27GB. Large models (32B) evict others
+4. **Embedding context limit** — mxbai-embed-large: 512 tokens. Truncate long text before embedding
+5. **JSONL files can be huge** — Current session is 3MB+, 736+ messages. Always paginate, never load all at once
+6. **Dashboard security hook** — A pre-tool-use hook blocks `innerHTML` edits during Claude Code sessions. The dashboard is localhost-only admin tool; use `escHtml()` for defense-in-depth and document the safety rationale in comments near innerHTML usage
+
+### Ollama Quirks
+
+- **Freeze under load:** Concurrent model pulls + inference can freeze Ollama. Sequential operations only.
+- **First-load latency:** 2-8s to load model weights into GPU memory after unload
+- **Health check:** `curl -s --max-time 3 http://127.0.0.1:11434/` before batch ops
+
+### Build & Install
+
+```bash
+cd ~/Projects/localllm-hub
+npm install                    # Installs all workspace dependencies
+node cli.js --help             # Verify CLI works
+node cli.js dashboard          # Start dashboard
+```
+
+No Python dependencies. No Docker. Everything runs natively on macOS with Node.js + Ollama + whisper.cpp.
+
+---
+
+## Development Patterns
+
+### Adding a New Package
+
+1. Create `packages/<name>/` with `package.json`, `index.js`, `cli.js`
+2. Add workspace reference in root `package.json` (automatic via `"workspaces": ["packages/*"]`)
+3. Import shared utilities: `require('../../shared/ollama')`, `require('../../shared/config')`
+4. Add CLI subcommand in root `cli.js` with lazy import
+5. Run `npm install` from root to link workspace
+
+### Adding a Dashboard Panel
+
+1. **Backend:** Add `app.get('/api/<endpoint>')` route in `server.js`
+2. **HTML:** Add `<section class="card" id="<name>-card"><h2>Title</h2><div id="<name>-content">Loading...</div></section>` in `index.html`
+3. **CSS:** Add styles in `<style>` block, use existing CSS variables
+4. **JS:** Add `async function load<Name>() { ... }` that fetches API and renders
+5. **Init:** Add to `Promise.all([..., load<Name>()])` in init block
+6. **Refresh:** Add `setInterval(load<Name>, <ms>)` if auto-refresh needed
+
+### Testing
+
+```bash
+# Verify all packages load
+npm run verify
+
+# Test individual commands
+node cli.js embed "test"
+node cli.js search "test query"
+node cli.js chat status
+
+# Test dashboard API
+curl -s http://localhost:3847/api/status | jq .
+curl -s http://localhost:3847/api/context-monitor | jq .
+curl -s http://localhost:3847/api/agents | jq .
+curl -s http://localhost:3847/api/chat/sessions | jq .
+```
+
+---
+
+## Future Roadmap
+
+- [ ] HTTP API server mode (expose localllm-hub as REST for non-Node consumers)
+- [ ] Model preloading service (keep frequently-used models warm via cron)
+- [ ] Embedding cache (skip re-embedding unchanged files on reindex)
+- [ ] Streaming mode for long-running generate/chat operations
+- [ ] Metrics endpoint (latency/throughput stats)
+- [ ] Email triage pipeline (classify → urgency → route → notify)
+- [ ] Voice memo ingestion pipeline (transcribe → embed → search)
+
+---
+
+## Quick Reference
+
+```bash
+# Start dashboard
+cd ~/Projects/localllm-hub && node cli.js dashboard
+
+# Search memory
+node cli.js search "what did we decide about X"
+
+# Check chat indexing
+node cli.js chat status
+
+# Reindex memory files
+node cli.js reindex --source ~/clawd/memory --db ~/clawd/scripts/memory.db
+
+# Ingest new chat sessions
+node cli.js chat ingest
+
+# Classify an email
+node cli.js classify --from "noreply@github.com" --subject "PR merged"
+
+# Rate urgency
+node cli.js triage "production server is down"
+```
