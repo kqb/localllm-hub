@@ -194,4 +194,89 @@ program
     }
   });
 
+// Chat Ingest
+const chat = program
+  .command('chat')
+  .description('Chat transcript ingestion and search');
+
+chat
+  .command('ingest')
+  .description('Ingest all Clawdbot chat transcripts')
+  .option('-d, --db <path>', 'Database path')
+  .option('-s, --sessions <path>', 'Sessions directory')
+  .action(async (options) => {
+    const { ingestAll } = require('./packages/chat-ingest/ingest');
+    try {
+      const total = await ingestAll(options.db, options.sessions);
+      console.log(`\nDone: ${total} new chunks ingested.`);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+chat
+  .command('search <query>')
+  .description('Search chat history')
+  .option('-d, --db <path>', 'Database path')
+  .option('-k, --top-k <number>', 'Number of results', '5')
+  .action(async (query, options) => {
+    const { chatSearch } = require('./packages/chat-ingest/search');
+    try {
+      const results = await chatSearch(query, options.db, parseInt(options.topK));
+      console.log('\nChat search results:\n');
+      for (const r of results) {
+        const ts = r.startTs ? new Date(r.startTs).toLocaleString() : 'unknown';
+        console.log(`[${r.score.toFixed(3)}] session:${r.sessionId.slice(0, 8)}  ${ts}`);
+        console.log(`  ${r.text.slice(0, 200).replace(/\n/g, ' | ')}...`);
+        console.log();
+      }
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+chat
+  .command('watch')
+  .description('Watch for new chat messages and ingest continuously')
+  .option('-d, --db <path>', 'Database path')
+  .option('-s, --sessions <path>', 'Sessions directory')
+  .action((options) => {
+    const { startWatcher } = require('./packages/chat-ingest/watcher');
+    startWatcher(options.db, options.sessions);
+  });
+
+chat
+  .command('status')
+  .description('Show ingestion stats')
+  .option('-d, --db <path>', 'Database path')
+  .action((options) => {
+    const { existsSync } = require('fs');
+    const Database = require('better-sqlite3');
+    const config = require('./shared/config');
+    const dbPath = options.db || config.paths.chatDb;
+
+    if (!existsSync(dbPath)) {
+      console.log('No database found. Run "chat ingest" first.');
+      return;
+    }
+
+    const db = new Database(dbPath);
+    const chunkCount = db.prepare('SELECT COUNT(*) as count FROM chat_chunks').get();
+    const fileCount = db.prepare('SELECT COUNT(*) as count FROM ingest_progress').get();
+    const lastUpdate = db.prepare('SELECT MAX(last_timestamp) as ts FROM ingest_progress').get();
+    const sessionCount = db.prepare('SELECT COUNT(DISTINCT session_id) as count FROM chat_chunks').get();
+
+    console.log('\n📊 Chat Ingest Status');
+    console.log(`  Files indexed:    ${fileCount.count}`);
+    console.log(`  Sessions:         ${sessionCount.count}`);
+    console.log(`  Total chunks:     ${chunkCount.count}`);
+    console.log(`  Last update:      ${lastUpdate.ts || 'never'}`);
+    console.log(`  Database:         ${dbPath}`);
+    console.log();
+
+    db.close();
+  });
+
 program.parse();

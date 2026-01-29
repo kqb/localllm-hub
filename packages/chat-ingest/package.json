@@ -1,0 +1,9 @@
+{
+  "name": "@localllm-hub/chat-ingest",
+  "version": "1.0.0",
+  "description": "Continuous chat transcript ingester for Clawdbot session history",
+  "main": "index.js",
+  "bin": {
+    "localllm-chat-ingest": "./cli.js"
+  }
+}

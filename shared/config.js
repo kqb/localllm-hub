@@ -17,6 +17,8 @@ module.exports = {
     memoryDir: join(homedir(), 'clawd/memory'),
     emailDb: join(homedir(), 'Projects/emailctl/emails.db'),
     searchDb: join(homedir(), 'clawd/scripts/memory.db'),
+    chatDb: join(homedir(), 'clawd/scripts/chat-memory.db'),
+    sessionsDir: join(homedir(), '.clawdbot/agents/main/sessions'),
   },
   ollama: {
     url: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
