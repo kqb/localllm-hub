@@ -469,6 +469,107 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
+// --- Agent Monitor ---
+
+function getAgentSessions() {
+  return new Promise((resolve) => {
+    execFile('clawdbot', ['sessions', 'list', '--json'], { timeout: 5000 }, (err, stdout) => {
+      let clawdbotSessions = [];
+      if (!err) {
+        try {
+          const parsed = JSON.parse(stdout);
+          const rawSessions = Array.isArray(parsed) ? parsed : parsed.sessions || [];
+          clawdbotSessions = rawSessions.map(s => ({
+            key: s.key || s.sessionKey || s.sessionId || 'unknown',
+            agentId: s.agentId || null,
+            kind: 'clawdbot',
+            model: s.model || 'unknown',
+            updatedAt: s.updatedAt || null,
+            totalTokens: s.totalTokens || 0,
+            contextTokens: s.contextTokens || 0,
+            percentUsed: s.contextTokens ? Math.round((s.totalTokens / s.contextTokens) * 100) : 0,
+            inputTokens: s.inputTokens || 0,
+            outputTokens: s.outputTokens || 0,
+          }));
+        } catch { /* parse error */ }
+      }
+
+      // Also check tmux sessions
+      execFile('tmux', ['ls', '-F', '#{session_name}:#{session_activity}'], { timeout: 3000 }, (tmuxErr, tmuxOut) => {
+        let tmuxSessions = [];
+        if (!tmuxErr && tmuxOut.trim()) {
+          tmuxSessions = tmuxOut.trim().split('\n').map(line => {
+            const [name, activity] = line.split(':');
+            const updatedAt = activity ? new Date(parseInt(activity) * 1000).toISOString() : null;
+            return {
+              key: name,
+              agentId: null,
+              kind: 'tmux',
+              model: null,
+              updatedAt,
+              totalTokens: 0,
+              contextTokens: 0,
+              percentUsed: 0,
+            };
+          });
+        }
+        resolve([...clawdbotSessions, ...tmuxSessions]);
+      });
+    });
+  });
+}
+
+app.get('/api/agents', async (_req, res) => {
+  try {
+    const sessions = await getAgentSessions();
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/agents/:sessionKey/log', (req, res) => {
+  const key = req.params.sessionKey;
+  const kind = req.query.kind || 'clawdbot';
+
+  if (kind === 'tmux') {
+    execFile('tmux', ['capture-pane', '-t', key, '-p', '-S', '-100'], { timeout: 5000 }, (err, stdout) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ type: 'tmux', lines: stdout.split('\n') });
+    });
+  } else {
+    execFile('clawdbot', ['sessions', 'history', key, '--json', '--limit', '20'], { timeout: 5000 }, (err, stdout) => {
+      if (err) return res.status(500).json({ error: err.message });
+      try {
+        const parsed = JSON.parse(stdout);
+        res.json({ type: 'clawdbot', messages: Array.isArray(parsed) ? parsed : parsed.messages || [] });
+      } catch (e) {
+        res.status(500).json({ error: 'Parse error: ' + e.message });
+      }
+    });
+  }
+});
+
+app.post('/api/agents/:sessionKey/send', (req, res) => {
+  const key = req.params.sessionKey;
+  const kind = req.query.kind || 'clawdbot';
+  const message = req.body.message;
+
+  if (!message) return res.status(400).json({ error: 'Missing message' });
+
+  if (kind === 'tmux') {
+    execFile('tmux', ['send-keys', '-t', key, message, 'Enter'], { timeout: 5000 }, (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ status: 'sent', kind: 'tmux' });
+    });
+  } else {
+    execFile('clawdbot', ['sessions', 'send', key, '--message', message], { timeout: 10000 }, (err, stdout) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ status: 'sent', kind: 'clawdbot', output: stdout });
+    });
+  }
+});
+
 // --- Context Monitor ---
 
 app.get('/api/context-monitor', async (_req, res) => {
@@ -549,18 +650,27 @@ app.get('/api/context-monitor', async (_req, res) => {
 async function broadcastStatus() {
   if (wss.clients.size === 0) return;
   try {
-    const [ollama, models] = await Promise.all([
+    const [ollama, models, agents] = await Promise.all([
       ollamaFetch('/'),
       ollamaFetch('/api/tags'),
+      getAgentSessions().catch(() => []),
     ]);
-    const msg = JSON.stringify({
+    const statusMsg = JSON.stringify({
       type: 'status',
       ollama: { healthy: !ollama.error },
       models: models.models || [],
       timestamp: new Date().toISOString(),
     });
+    const agentsMsg = JSON.stringify({
+      type: 'agents',
+      agents,
+      timestamp: new Date().toISOString(),
+    });
     for (const client of wss.clients) {
-      if (client.readyState === 1) client.send(msg);
+      if (client.readyState === 1) {
+        client.send(statusMsg);
+        client.send(agentsMsg);
+      }
     }
   } catch { /* ignore broadcast errors */ }
 }

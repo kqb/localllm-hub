@@ -111,6 +111,23 @@
   .ctx-table .missing { color: var(--text2); font-style: italic; }
   .ctx-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 
+  /* Agent Monitor */
+  .agent-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .agent-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .agent-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .agent-table tr:last-child td { border-bottom: none; }
+  .agent-table tr.clickable { cursor: pointer; transition: background .15s; }
+  .agent-table tr.clickable:hover { background: var(--bg3); }
+  .agent-table tr.selected { background: rgba(88,166,255,.08); }
+  .agent-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .agent-status-dot.active { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .agent-status-dot.idle { background: var(--yellow); }
+  .agent-status-dot.stale { background: var(--red); }
+  .agent-output { background: #1a1a2e; color: #e0e0e0; font-family: monospace; font-size: 12px; padding: 12px; border-radius: 4px; overflow-y: auto; max-height: 400px; line-height: 1.6; margin-top: 12px; white-space: pre-wrap; word-break: break-word; }
+  .agent-input-bar { display: flex; gap: 8px; margin-top: 8px; }
+  .agent-input-bar input[type=text] { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; }
+  .agent-input-bar input:focus { border-color: var(--accent); }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
@@ -145,6 +162,12 @@
   <section class="card" id="context-card">
     <h2>📊 Context Monitor</h2>
     <div id="context-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Agent Monitor -->
+  <section class="card" id="agents-card">
+    <h2>🤖 Agent Monitor</h2>
+    <div id="agents-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
   <!-- Search -->
@@ -971,6 +994,123 @@ async function restartDaemon(label) {
   }
 }
 
+// --- Agent Monitor ---
+let _agentSelectedKey = null;
+let _agentSelectedKind = null;
+let _agentOutputInterval = null;
+
+async function loadAgents() {
+  try {
+    const res = await fetch(API + '/api/agents');
+    const agents = await res.json();
+    if (!agents.length) {
+      $('agents-content').innerHTML = '<div class="empty">No active agent sessions</div>';
+      return;
+    }
+    const now = Date.now();
+    let html = '<table class="agent-table"><thead><tr><th></th><th>Session</th><th>Type</th><th>Model</th><th>Context</th><th>Last Active</th></tr></thead><tbody>';
+    for (const a of agents) {
+      const age = a.updatedAt ? (now - a.updatedAt) / 1000 : 999;
+      const dotClass = age < 120 ? 'active' : age < 300 ? 'idle' : 'stale';
+      const selected = (_agentSelectedKey === a.key) ? ' selected' : '';
+      const ageText = a.updatedAt ? timeAgo(a.updatedAt) : '—';
+      const ctx = a.percentUsed != null ? a.percentUsed + '%' : '—';
+      const model = escHtml(a.model || '—');
+      const kind = escHtml(a.kind || 'unknown');
+      html += '<tr class="clickable' + selected + '" data-key="' + escHtml(a.key) + '" data-kind="' + kind + '">';
+      html += '<td><span class="agent-status-dot ' + dotClass + '"></span></td>';
+      html += '<td><strong>' + escHtml(a.key) + '</strong></td>';
+      html += '<td><span class="badge blue">' + kind + '</span></td>';
+      html += '<td>' + model + '</td>';
+      html += '<td>' + ctx + '</td>';
+      html += '<td>' + ageText + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+
+    if (_agentSelectedKey) {
+      html += '<div id="agent-output-pane" class="agent-output">Loading output...</div>';
+      html += '<div class="agent-input-bar"><input type="text" id="agent-input" placeholder="Send command to agent..." /><button onclick="sendAgentInput()">Send</button></div>';
+    }
+
+    // NOTE: localhost-only admin dashboard, all data from local shell commands, escHtml for defense in depth
+    $('agents-content').innerHTML = html;
+
+    // Bind click handlers
+    document.querySelectorAll('.agent-table tr.clickable').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const key = tr.dataset.key;
+        const kind = tr.dataset.kind;
+        if (_agentSelectedKey === key) {
+          _agentSelectedKey = null;
+          _agentSelectedKind = null;
+          clearInterval(_agentOutputInterval);
+          _agentOutputInterval = null;
+        } else {
+          _agentSelectedKey = key;
+          _agentSelectedKind = kind;
+          loadAgentOutput();
+          clearInterval(_agentOutputInterval);
+          _agentOutputInterval = setInterval(loadAgentOutput, 5000);
+        }
+        loadAgents();
+      });
+    });
+
+    if (_agentSelectedKey) loadAgentOutput();
+  } catch (e) {
+    $('agents-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function loadAgentOutput() {
+  const pane = document.getElementById('agent-output-pane');
+  if (!pane || !_agentSelectedKey) return;
+  try {
+    const res = await fetch(API + '/api/agents/' + encodeURIComponent(_agentSelectedKey) + '/log?kind=' + (_agentSelectedKind || 'clawdbot'));
+    const d = await res.json();
+    if (d.error) { pane.textContent = 'Error: ' + d.error; return; }
+    const wasAtBottom = pane.scrollHeight - pane.scrollTop <= pane.clientHeight + 20;
+    if (d.type === 'tmux') {
+      pane.textContent = (d.lines || []).join('\n');
+    } else {
+      let text = '';
+      for (const msg of (d.messages || [])) {
+        const role = (msg.role || '').toUpperCase();
+        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+        text += '[' + role + '] ' + content + '\n\n';
+      }
+      pane.textContent = text || '(no output)';
+    }
+    if (wasAtBottom) pane.scrollTop = pane.scrollHeight;
+  } catch (e) {
+    if (pane) pane.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function sendAgentInput() {
+  const input = document.getElementById('agent-input');
+  if (!input || !input.value.trim() || !_agentSelectedKey) return;
+  const msg = input.value.trim();
+  input.value = '';
+  try {
+    await fetch(API + '/api/agents/' + encodeURIComponent(_agentSelectedKey) + '/send?kind=' + (_agentSelectedKind || 'clawdbot'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: msg })
+    });
+    setTimeout(loadAgentOutput, 1000);
+  } catch (e) {
+    console.error('Send failed:', e);
+  }
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
 // --- Packages ---
 const PKG_ICONS = {
   embeddings: '🔢', classifier: '🏷️', triage: '🚦',
@@ -1030,6 +1170,10 @@ function connectWs() {
           $('models-content').innerHTML = html;
         }
       }
+      if (msg.type === 'agents') {
+        // Live agent updates via WebSocket - refresh the agent list
+        loadAgents();
+      }
     } catch {}
   };
   ws.onclose = () => setTimeout(connectWs, 5000);
@@ -1038,10 +1182,12 @@ function connectWs() {
 
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
+  // Refresh agent list every 10s
+  setInterval(loadAgents, 10000);
   // Refresh full status every 60s
   setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); }, 60000);
 })();
