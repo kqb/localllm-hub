@@ -1,0 +1,11 @@
+{
+  "name": "@localllm/transcriber",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": {
+    "localllm-transcribe": "./cli.js"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  }
+}
