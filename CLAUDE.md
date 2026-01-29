@@ -499,10 +499,108 @@ curl -s http://localhost:3847/api/chat/sessions | jq .
 
 ---
 
+## Optimization Plan (AgentOS Architecture)
+
+This project is the "body" of a Multi-Agent System where Claude is the executive brain and the M4 Max provides memory, ears, and routing. These optimizations maximize that architecture.
+
+### 1. RAG Quality: Concept-Level Chunking
+
+**Current:** 500 char chunks, 100 overlap — produces sentence fragments that force Claude to guess connections.
+**Target:** 1500 char chunks, 300 overlap — gives Claude full concept blocks (entire functions, config sections, decision threads).
+
+```javascript
+// config change needed:
+embedding: {
+  dimension: 1024,
+  chunkSize: 1500,     // was 500
+  chunkOverlap: 300,   // was 100
+}
+```
+
+**Why:** Claude Opus excels at synthesis. Feed it 2 large contextual blocks > 5 tiny snippets. The extra embedding cost is negligible; the reasoning quality improvement is massive.
+
+**After changing:** Run `node cli.js reindex` to rebuild all search indices with new chunk sizes.
+
+### 2. Model Budget: Downsize for Breathing Room
+
+**Current:** qwen2.5-coder:32b (19GB) + deepseek-r1:32b (19GB) — can't coexist, causes thrash.
+**Target:** Downsize to 14B variants (~9GB each), freeing ~10GB for always-loaded services.
+
+| Model | Size | Role | Status |
+|-------|------|------|--------|
+| mxbai-embed-large | 669MB | Embeddings | Always loaded |
+| qwen2.5:7b | 4.7GB | Router + Triage | Always loaded |
+| qwen2.5-coder:14b | ~9GB | Code tasks | On-demand |
+| deepseek-r1:14b | ~9GB | Complex reasoning | On-demand |
+
+**Breathing room needed for:**
+- Vector DB cache in RAM (0.1s queries vs 5s disk reads)
+- Chat ingest watcher daemon (background JSONL parsing)
+- Router model always warm (instant triage, no cold-start)
+
+### 3. Route Switching: Triage Module Activation
+
+The triage package exists but isn't wired into Clawdbot. Activate it to route prompts to the cheapest capable model.
+
+**Three routing buckets:**
+
+| Bucket | Intent Signals | Routed To | Cost |
+|--------|---------------|-----------|------|
+| **High Ops** | Architect, refactor, debug complex, security audit, multi-file | Claude Opus | $$$ |
+| **Low Ops** | Draft email, fix typo, summarize, simple Q&A, translate | Sonnet / Haiku / Gemini Flash | $ |
+| **Local Ops** | Search notes, list files, classify email, rate urgency | Qwen 7B (local) | Free |
+
+**Implementation:** Qwen 7B classifies every incoming prompt → JSON output `{"route": "high_ops"|"low_ops"|"local_ops", "reason": "..."}` → Clawdbot routes to appropriate model.
+
+**Latency budget:** ~100ms for local classification. Saves $0.50+ per simple query redirected away from Opus.
+
+### 4. Librarian Pre-Fetch (Don't Make Claude Search)
+
+Claude is too expensive to be a search engine. Use a local "Librarian" agent to pre-fetch context.
+
+**Current flow:**
+```
+User query → Claude → memory_search tool call → results → Claude reasons
+(2 Claude roundtrips, search burns Opus tokens)
+```
+
+**Optimized flow:**
+```
+User query → Qwen 7B (local) → semantic search + grep → inject context → Claude reasons
+(1 Claude roundtrip, search is free)
+```
+
+**Implementation:** Before sending to Claude, local Librarian:
+1. Runs semantic search across memory + chat + telegram
+2. Greps relevant files for keywords
+3. Injects top results into the Claude prompt as pre-fetched context
+4. Claude just reads and reasons — never calls search tools
+
+### 5. Context Window Hygiene (200k Hard Limit)
+
+Claude's 200k is a hard wall (400 error at 200,001). Manage it aggressively.
+
+**Flush trigger:** 190k (95%). Keep 10k buffer for model output (reasoning chain + code).
+
+**Context structure:**
+- **Static block (cached):** AGENTS.md + TOOLS.md + MEMORY.md (~7k tokens, cached by Anthropic)
+- **Dynamic block:** Recent chat history + user query + pre-fetched context
+
+**Compaction strategy:** Clawdbot handles automatic compaction. Prevent bloat by:
+- Truncating long tool results (500 char max in context, full result in separate retrieval)
+- Not re-injecting entire file contents when a summary suffices
+- Moving resolved topics to MEMORY.md proactively
+
+---
+
 ## Future Roadmap
 
+- [ ] **Activate route switching** — Wire triage into Clawdbot prompt pipeline
+- [ ] **Librarian agent** — Pre-fetch context before Claude calls
+- [ ] **Chunk size migration** — Increase to 1500 chars, reindex all sources
+- [ ] **Model downsize** — Pull 14B variants, update config, test quality
+- [ ] **Always-warm router** — Keep Qwen 7B loaded via OLLAMA_KEEP_ALIVE or preload cron
 - [ ] HTTP API server mode (expose localllm-hub as REST for non-Node consumers)
-- [ ] Model preloading service (keep frequently-used models warm via cron)
 - [ ] Embedding cache (skip re-embedding unchanged files on reindex)
 - [ ] Streaming mode for long-running generate/chat operations
 - [ ] Metrics endpoint (latency/throughput stats)
