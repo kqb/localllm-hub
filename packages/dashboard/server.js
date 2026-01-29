@@ -570,6 +570,116 @@ app.post('/api/agents/:sessionKey/send', (req, res) => {
   }
 });
 
+// --- Chat API ---
+
+const SESSION_DIR = path.join(os.homedir(), '.clawdbot', 'agents', 'main', 'sessions');
+const _chatCache = new Map(); // sessionId -> { mtime, messages }
+
+function parseSessionJsonl(sessionId) {
+  const fp = path.join(SESSION_DIR, sessionId + '.jsonl');
+  if (!existsSync(fp)) return null;
+  const st = statSync(fp);
+  const cached = _chatCache.get(sessionId);
+  if (cached && cached.mtime === st.mtimeMs) return cached.messages;
+
+  const raw = readFileSync(fp, 'utf-8');
+  const messages = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type !== 'message' || !entry.message) continue;
+      const msg = entry.message;
+      const role = msg.role || '';
+      const parsed = {
+        id: entry.id, parentId: entry.parentId,
+        timestamp: msg.timestamp || entry.timestamp,
+        role,
+        text: null, thinking: null, toolCalls: [], toolResult: null,
+        model: msg.model || null,
+        usage: msg.usage ? { input: msg.usage.inputTokens || 0, output: msg.usage.outputTokens || 0 } : null,
+        stopReason: msg.stopReason || null,
+      };
+
+      const content = msg.content;
+      if (typeof content === 'string') {
+        parsed.text = content;
+      } else if (Array.isArray(content)) {
+        const textParts = [];
+        for (const block of content) {
+          if (block.type === 'text') textParts.push(block.text);
+          else if (block.type === 'thinking') parsed.thinking = block.thinking;
+          else if (block.type === 'toolCall') parsed.toolCalls.push({ id: block.id, name: block.name, arguments: block.arguments });
+        }
+        if (textParts.length) parsed.text = textParts.join('\n');
+      }
+
+      if (role === 'toolResult') {
+        const resultText = Array.isArray(content) ? content.filter(b => b.type === 'text').map(b => b.text).join('\n') : (typeof content === 'string' ? content : '');
+        parsed.toolResult = {
+          toolName: msg.toolName || null,
+          toolCallId: msg.toolCallId || null,
+          content: resultText,
+          isError: msg.isError || false,
+          details: msg.details || null,
+        };
+      }
+      messages.push(parsed);
+    } catch { /* skip bad lines */ }
+  }
+  _chatCache.set(sessionId, { mtime: st.mtimeMs, messages });
+  return messages;
+}
+
+app.get('/api/chat/sessions', (_req, res) => {
+  try {
+    if (!existsSync(SESSION_DIR)) return res.json([]);
+    const files = readdirSync(SESSION_DIR).filter(f => f.endsWith('.jsonl') && !f.includes('.deleted') && !f.includes('.lock'));
+    const sessions = files.map(f => {
+      const fp = path.join(SESSION_DIR, f);
+      const st = statSync(fp);
+      return {
+        sessionId: f.replace('.jsonl', ''),
+        filename: f,
+        sizeBytes: st.size,
+        lastModified: st.mtimeMs,
+      };
+    }).sort((a, b) => b.lastModified - a.lastModified);
+    res.json(sessions);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/chat/:sessionId/messages', (req, res) => {
+  try {
+    const messages = parseSessionJsonl(req.params.sessionId);
+    if (!messages) return res.status(404).json({ error: 'Session not found' });
+    const total = messages.length;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = parseInt(req.query.offset) || 0;
+    // offset from end: 0 = last N messages
+    const start = Math.max(0, total - offset - limit);
+    const end = Math.max(0, total - offset);
+    const slice = messages.slice(start, end);
+    res.json({ messages: slice, total, hasMore: start > 0 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/chat/:sessionId/messages/stream', (req, res) => {
+  try {
+    const messages = parseSessionJsonl(req.params.sessionId);
+    if (!messages) return res.status(404).json({ error: 'Session not found' });
+    const n = Math.min(parseInt(req.query.last) || 20, 100);
+    const slice = messages.slice(-n);
+    res.json({ messages: slice, total: messages.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Context Monitor ---
 
 app.get('/api/context-monitor', async (_req, res) => {

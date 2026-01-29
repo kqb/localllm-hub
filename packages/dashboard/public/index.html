@@ -111,6 +111,31 @@
   .ctx-table .missing { color: var(--text2); font-style: italic; }
   .ctx-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 
+  /* Conversation */
+  #chat-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  #chat-controls select { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; color: var(--text); font-size: 13px; min-width: 200px; }
+  .chat-toggle { padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; font-size: 12px; transition: all .15s; }
+  .chat-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #chat-messages { max-height: 600px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+  .chat-msg { padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.6; }
+  .chat-msg.user { background: var(--bg3); border-left: 3px solid var(--green); }
+  .chat-msg.assistant { background: var(--bg2); border-left: 3px solid var(--accent); }
+  .chat-msg.tool-result-msg { background: var(--bg2); border-left: 3px solid var(--yellow); font-size: 12px; }
+  .chat-msg .msg-role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 4px; }
+  .chat-msg .msg-text { white-space: pre-wrap; word-break: break-word; }
+  .chat-msg .msg-text code { background: var(--bg3); padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+  .chat-msg .msg-text pre { background: #1a1a2e; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 8px 0; }
+  .chat-msg .timestamp { font-size: 11px; color: var(--text2); margin-top: 4px; }
+  .chat-thinking { background: rgba(128,0,255,.08); border-left: 2px solid #8b5cf6; padding: 8px 10px; margin: 6px 0; font-style: italic; color: #a78bfa; font-size: 13px; border-radius: 4px; cursor: pointer; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+  .chat-thinking.collapsed { max-height: 24px; overflow: hidden; }
+  .chat-thinking-label { font-weight: 600; font-size: 11px; margin-bottom: 4px; display: block; }
+  .chat-tool-call { display: inline-flex; align-items: center; gap: 4px; background: rgba(88,166,255,.15); color: var(--accent); padding: 3px 8px; border-radius: 12px; font-size: 12px; font-family: monospace; margin: 4px 2px; cursor: pointer; }
+  .chat-tool-args { background: #1a1a2e; color: #e0e0e0; padding: 8px; border-radius: 4px; font-size: 11px; font-family: monospace; margin: 4px 0; white-space: pre-wrap; max-height: 150px; overflow-y: auto; display: none; }
+  .chat-tool-result-content { background: var(--bg3); padding: 8px; border-radius: 4px; font-size: 12px; font-family: monospace; white-space: pre-wrap; max-height: 200px; overflow-y: auto; word-break: break-word; }
+  .chat-tool-result-content.error { border-left: 2px solid var(--red); }
+  .chat-usage { font-size: 11px; color: var(--text2); margin-top: 4px; }
+  .chat-hidden { display: none !important; }
+
   /* Agent Monitor */
   .agent-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .agent-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -168,6 +193,19 @@
   <section class="card" id="agents-card">
     <h2>🤖 Agent Monitor</h2>
     <div id="agents-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Conversation -->
+  <section class="card" id="chat-card">
+    <h2>💬 Conversation</h2>
+    <div id="chat-controls">
+      <select id="chat-session-select"><option value="">Select session...</option></select>
+      <button class="chat-toggle active" id="chat-toggle-thinking" onclick="toggleChat('thinking')">🧠 Thinking</button>
+      <button class="chat-toggle active" id="chat-toggle-tools" onclick="toggleChat('tools')">🔧 Tools</button>
+      <button class="chat-toggle" id="chat-toggle-usage" onclick="toggleChat('usage')">📊 Usage</button>
+    </div>
+    <div id="chat-load-more" style="text-align:center;display:none"><button class="btn" onclick="loadMoreChat()">Load More ↑</button></div>
+    <div id="chat-messages"></div>
   </section>
 
   <!-- Search -->
@@ -407,6 +445,231 @@ async function loadContextMonitor() {
   } catch (e) {
     $('context-content').textContent = 'Error: ' + e.message;
   }
+}
+
+// --- Conversation ---
+let _chatState = { sessionId: null, offset: 0, total: 0, messages: [], showThinking: true, showTools: true, showUsage: false, tailInterval: null };
+
+async function loadChatSessions() {
+  try {
+    const res = await fetch(API + '/api/chat/sessions');
+    const sessions = await res.json();
+    const sel = $('chat-session-select');
+    sel.innerHTML = '<option value="">Select session...</option>';
+    for (const s of sessions) {
+      const opt = document.createElement('option');
+      opt.value = s.sessionId;
+      const date = new Date(s.lastModified).toLocaleString();
+      const size = s.sizeBytes > 1048576 ? (s.sizeBytes / 1048576).toFixed(1) + 'MB' : (s.sizeBytes / 1024).toFixed(0) + 'KB';
+      opt.textContent = s.sessionId.slice(0, 8) + '... (' + size + ', ' + date + ')';
+      sel.appendChild(opt);
+    }
+    sel.onchange = () => {
+      const sid = sel.value;
+      if (sid) { _chatState.sessionId = sid; _chatState.offset = 0; _chatState.messages = []; loadChatMessages(true); startChatTail(); }
+      else { _chatState.sessionId = null; stopChatTail(); $('chat-messages').innerHTML = ''; }
+    };
+    // Auto-select first (most recent)
+    if (sessions.length && !_chatState.sessionId) {
+      sel.value = sessions[0].sessionId;
+      sel.onchange();
+    }
+  } catch (e) {
+    console.error('loadChatSessions error:', e);
+  }
+}
+
+async function loadChatMessages(initial) {
+  if (!_chatState.sessionId) return;
+  try {
+    const res = await fetch(API + '/api/chat/' + _chatState.sessionId + '/messages?limit=50&offset=' + _chatState.offset);
+    const d = await res.json();
+    _chatState.total = d.total;
+    const container = $('chat-messages');
+
+    if (initial) {
+      container.innerHTML = '';
+      _chatState.messages = d.messages;
+    } else {
+      _chatState.messages = [...d.messages, ..._chatState.messages];
+    }
+
+    renderChatMessages(container, initial ? d.messages : d.messages, initial);
+    $('chat-load-more').style.display = d.hasMore ? 'block' : 'none';
+    if (initial) container.scrollTop = container.scrollHeight;
+  } catch (e) {
+    $('chat-messages').textContent = 'Error: ' + e.message;
+  }
+}
+
+function loadMoreChat() {
+  _chatState.offset += 50;
+  const container = $('chat-messages');
+  const oldHeight = container.scrollHeight;
+  loadChatMessages(false).then(() => {
+    container.scrollTop = container.scrollHeight - oldHeight;
+  });
+}
+
+function renderChatMessages(container, messages, append) {
+  const frag = document.createDocumentFragment();
+  for (const msg of messages) {
+    frag.appendChild(renderChatMsg(msg));
+  }
+  if (append) container.appendChild(frag);
+  else container.insertBefore(frag, container.firstChild);
+}
+
+function renderChatMsg(msg) {
+  const div = document.createElement('div');
+  const role = msg.role || 'unknown';
+
+  if (role === 'toolResult') {
+    div.className = 'chat-msg tool-result-msg' + (_chatState.showTools ? '' : ' chat-hidden');
+    div.dataset.type = 'tool';
+    const label = document.createElement('div');
+    label.className = 'msg-role';
+    label.textContent = '🔧 ' + (msg.toolResult?.toolName || 'tool result');
+    div.appendChild(label);
+    if (msg.toolResult) {
+      const content = document.createElement('div');
+      content.className = 'chat-tool-result-content' + (msg.toolResult.isError ? ' error' : '');
+      const text = msg.toolResult.content || '';
+      content.textContent = text.length > 500 ? text.slice(0, 500) + '...' : text;
+      if (text.length > 500) {
+        content.style.cursor = 'pointer';
+        content.onclick = () => { content.textContent = content.textContent.length < text.length ? text : text.slice(0, 500) + '...'; };
+      }
+      div.appendChild(content);
+    }
+    addTimestamp(div, msg);
+    return div;
+  }
+
+  div.className = 'chat-msg ' + role;
+
+  // Role label
+  const roleLabel = document.createElement('div');
+  roleLabel.className = 'msg-role';
+  roleLabel.textContent = role === 'user' ? '👤 User' : '🤖 Assistant' + (msg.model ? ' · ' + msg.model : '');
+  div.appendChild(roleLabel);
+
+  // Thinking
+  if (msg.thinking) {
+    const thinkDiv = document.createElement('div');
+    thinkDiv.className = 'chat-thinking collapsed' + (_chatState.showThinking ? '' : ' chat-hidden');
+    thinkDiv.dataset.type = 'thinking';
+    const label = document.createElement('span');
+    label.className = 'chat-thinking-label';
+    label.textContent = '🧠 Thinking (click to expand)';
+    thinkDiv.appendChild(label);
+    const content = document.createElement('div');
+    content.textContent = msg.thinking;
+    thinkDiv.appendChild(content);
+    thinkDiv.onclick = () => {
+      thinkDiv.classList.toggle('collapsed');
+      label.textContent = thinkDiv.classList.contains('collapsed') ? '🧠 Thinking (click to expand)' : '🧠 Thinking';
+    };
+    div.appendChild(thinkDiv);
+  }
+
+  // Text
+  if (msg.text) {
+    const textDiv = document.createElement('div');
+    textDiv.className = 'msg-text';
+    textDiv.innerHTML = renderMarkdown(escHtml(msg.text));
+    div.appendChild(textDiv);
+  }
+
+  // Tool calls
+  if (msg.toolCalls && msg.toolCalls.length) {
+    const toolsDiv = document.createElement('div');
+    toolsDiv.dataset.type = 'tool';
+    if (!_chatState.showTools) toolsDiv.classList.add('chat-hidden');
+    for (const tc of msg.toolCalls) {
+      const badge = document.createElement('span');
+      badge.className = 'chat-tool-call';
+      badge.textContent = '🔧 ' + (tc.name || 'tool');
+      const argsDiv = document.createElement('div');
+      argsDiv.className = 'chat-tool-args';
+      argsDiv.textContent = typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments, null, 2);
+      badge.onclick = () => { argsDiv.style.display = argsDiv.style.display === 'none' ? 'block' : 'none'; };
+      toolsDiv.appendChild(badge);
+      toolsDiv.appendChild(argsDiv);
+    }
+    div.appendChild(toolsDiv);
+  }
+
+  // Usage
+  if (msg.usage) {
+    const usageDiv = document.createElement('div');
+    usageDiv.className = 'chat-usage' + (_chatState.showUsage ? '' : ' chat-hidden');
+    usageDiv.dataset.type = 'usage';
+    usageDiv.textContent = '↓ ' + (msg.usage.input || 0).toLocaleString() + ' in · ↑ ' + (msg.usage.output || 0).toLocaleString() + ' out';
+    div.appendChild(usageDiv);
+  }
+
+  addTimestamp(div, msg);
+  return div;
+}
+
+function addTimestamp(div, msg) {
+  if (msg.timestamp) {
+    const ts = document.createElement('div');
+    ts.className = 'timestamp';
+    ts.textContent = new Date(msg.timestamp).toLocaleString();
+    div.appendChild(ts);
+  }
+}
+
+function renderMarkdown(html) {
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Newlines (outside pre)
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function toggleChat(type) {
+  const btn = $('chat-toggle-' + type);
+  const active = btn.classList.toggle('active');
+  if (type === 'thinking') _chatState.showThinking = active;
+  else if (type === 'tools') _chatState.showTools = active;
+  else if (type === 'usage') _chatState.showUsage = active;
+
+  // Toggle visibility via CSS
+  document.querySelectorAll('#chat-messages [data-type="' + type + '"]').forEach(el => {
+    el.classList.toggle('chat-hidden', !active);
+  });
+}
+
+function startChatTail() {
+  stopChatTail();
+  _chatState.tailInterval = setInterval(async () => {
+    if (!_chatState.sessionId) return;
+    try {
+      const res = await fetch(API + '/api/chat/' + _chatState.sessionId + '/messages/stream?last=5');
+      const d = await res.json();
+      if (d.total > _chatState.total) {
+        const newCount = d.total - _chatState.total;
+        const newMsgs = d.messages.slice(-newCount);
+        _chatState.total = d.total;
+        _chatState.messages.push(...newMsgs);
+        const container = $('chat-messages');
+        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+        renderChatMessages(container, newMsgs, true);
+        if (wasAtBottom) container.scrollTop = container.scrollHeight;
+      }
+    } catch { /* ignore tail errors */ }
+  }, 5000);
+}
+
+function stopChatTail() {
+  if (_chatState.tailInterval) { clearInterval(_chatState.tailInterval); _chatState.tailInterval = null; }
 }
 
 // --- Search ---
@@ -1182,7 +1445,7 @@ function connectWs() {
 
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
