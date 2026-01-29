@@ -248,6 +248,34 @@ chat
   });
 
 chat
+  .command('search-all <query>')
+  .description('Unified search: memory + chat sessions + Telegram')
+  .option('-k, --top-k <number>', 'Number of results', '10')
+  .option('-s, --sources <list>', 'Comma-separated sources: memory,chat,telegram', 'memory,chat,telegram')
+  .action(async (query, options) => {
+    const { unifiedSearch } = require('./packages/chat-ingest/unified-search');
+    try {
+      const results = await unifiedSearch(query, {
+        topK: parseInt(options.topK),
+        sources: options.sources.split(','),
+      });
+
+      console.log(`\n🔍 Unified search: "${query}" (${results.length} results)\n`);
+      for (const r of results) {
+        const tag = r.source === 'memory' ? `📝 ${r.meta.file}:${r.meta.startLine}`
+          : r.source === 'chat' ? `💬 session:${r.meta.sessionId?.slice(0, 8)} ${r.meta.startTs ? new Date(r.meta.startTs).toLocaleString() : ''}`
+          : `📱 telegram ${r.meta.startTs ? new Date(r.meta.startTs).toLocaleString() : ''}`;
+        console.log(`[${r.score.toFixed(3)}] ${tag}`);
+        console.log(`  ${r.text.slice(0, 200).replace(/\n/g, ' | ')}...`);
+        console.log();
+      }
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+chat
   .command('status')
   .description('Show ingestion stats')
   .option('-d, --db <path>', 'Database path')
