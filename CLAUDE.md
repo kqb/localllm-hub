@@ -609,6 +609,251 @@ Claude's 200k is a hard wall (400 error at 200,001). Manage it aggressively.
 
 ---
 
+## Dashboard UX: Unified Control Center
+
+The dashboard (`http://localhost:3847`, LAN: `http://192.168.1.49:3847`) is the **single pane of glass** for the entire AgentOS stack. It enables super users to monitor, configure, and harness the full potential of their local models without touching config files or CLI.
+
+### Current Panels (10)
+
+| Panel | Purpose | Refresh |
+|-------|---------|---------|
+| **Status + Models** | Ollama health, loaded models with sizes | 30s WS |
+| **📊 Context Monitor** | Context window gauge (color-coded), injected file token costs, memory footprint | 30s |
+| **🤖 Agent Monitor** | Live sessions (Clawdbot + tmux), status dots, click-to-expand terminal output, send commands | 10s + 5s output |
+| **💬 Conversation** | Full chat history with 🧠 Thinking / 🔧 Tools / 📊 Usage toggles, pagination, live tail | 5s tail |
+| **🔍 Semantic Search** | Multi-source search (memory + chat + telegram) with source toggles and relevance sliders | Manual |
+| **Jobs** | Ingestion stats: chat chunks indexed, telegram messages, progress tracking | 60s |
+| **Clawdbot Config** | Live-edit Clawdbot gateway config (writes to `~/.clawdbot/clawdbot.json`) | Manual |
+| **Memory Config** | Live-edit LocalLLM config (writes to `config.local.json`) | Manual |
+| **Daemons** | Launchd service status, log viewers, restart buttons | 60s |
+| **Packages** | Health grid for all localllm packages | 60s |
+
+### Planned Dashboard Enhancements
+
+- [ ] **Model Manager** — Pull/remove Ollama models, see VRAM usage, warm/cold status
+- [ ] **Route Switcher UI** — Configure triage buckets, test routing decisions, see cost savings
+- [ ] **Token Economics** — Visualize cost per session, model usage breakdown, savings from local routing
+- [ ] **RAG Quality Inspector** — Browse indexed chunks, test search queries, see relevance scores, tune chunk size
+- [ ] **Prompt Editor** — Edit system prompts, flush prompts, compaction settings with live preview
+- [ ] **Alerts & Notifications** — Context window warnings, model OOM alerts, daemon failures
+
+### Design Principles
+
+- **Localhost-only admin tool** — No auth required on loopback. LAN access for mobile monitoring.
+- **Single-page vanilla HTML/CSS/JS** — No build step, no framework. Copy-paste deployable.
+- **Dark theme** — CSS variables for consistent styling across all panels.
+- **Real-time** — WebSocket for push updates, polling for panel-specific data.
+- **Progressive disclosure** — Overview first, click to expand details (agent output, tool arguments, thinking blocks).
+
+---
+
+## Clawdbot Configuration & Behavior (Agent Reference)
+
+Agents working on this project need to understand how Clawdbot is configured and where to make changes. This section maps every configurable aspect.
+
+### File Map: Where Everything Lives
+
+```
+~/.clawdbot/                              # Clawdbot runtime data
+├── clawdbot.json                         # ★ MAIN CONFIG — gateway, channels, agents, auth
+├── clawdbot.json.bak                     # Auto-backup before config changes
+├── agents/
+│   └── main/
+│       ├── agent/
+│       │   └── auth-profiles.json        # OAuth/API key profiles
+│       └── sessions/
+│           ├── <uuid>.jsonl              # Conversation transcripts (one per session)
+│           └── <uuid>.jsonl.lock         # Session locks
+├── browser/
+│   └── clawd/                            # Isolated browser profile for automation
+├── bin/                                  # Clawdbot binaries
+└── logs/
+    └── chat-ingest.{log,err}             # Ingestion daemon logs
+
+~/clawd/                                  # ★ AGENT WORKSPACE — Zoid's home
+├── AGENTS.md                             # ★ Agent behavior rules, orchestration patterns
+├── SOUL.md                               # ★ Personality, tone, boundaries
+├── USER.md                               # ★ User profile (Kat — engineer, CST timezone)
+├── IDENTITY.md                           # Name (Zoid), emoji (🦑), creature type
+├── TOOLS.md                              # Tool-specific notes (cameras, SSH, TTS, scripts)
+├── HEARTBEAT.md                          # Heartbeat checklist (what to check on wake)
+├── MEMORY.md                             # ★ Long-term curated memory (distilled insights)
+├── CONTEXT_TODAY.md                      # Auto-generated daily corrections + focus areas
+├── memory/                               # Daily memory logs
+│   ├── YYYY-MM-DD.md                     # Raw daily notes (one per day)
+│   └── corrections/
+│       └── YYYY-MM-DD-<slug>.md          # Behavioral corrections
+├── scripts/                              # Utility scripts (monitors, search, context gen)
+│   ├── semantic-search.js                # Memory search (SQLite + embeddings)
+│   ├── generate-context.sh               # Regenerates CONTEXT_TODAY.md
+│   ├── context-monitor.sh                # CLI context window monitor
+│   ├── claude-watcher.js                 # VSCode Claude instance monitor
+│   ├── claude-usage-guardian.sh          # Usage tracking with auto-pause
+│   └── session-continuity.js             # Cross-session task tracking
+├── skills/                               # 33+ installed skills (AgentSkill format)
+│   ├── claude-code-wingman/              # ★ Spawn Claude Code in tmux
+│   ├── coding-orchestration/             # Multi-agent coding workflows
+│   ├── gog/                              # Google Workspace CLI
+│   ├── github/                           # GitHub CLI patterns
+│   ├── weather/                          # Weather lookups
+│   └── ...                               # 28+ more skills
+├── docs/                                 # Agent documentation
+│   ├── orchestrating-coding-agents.md
+│   └── ui-validation-guide.md
+└── data/                                 # Local data exports
+    └── telegram/                         # Telegram chat exports
+
+/opt/homebrew/lib/node_modules/clawdbot/  # Clawdbot installation (npm global)
+├── skills/                               # Built-in skills (30+)
+│   ├── 1password/
+│   ├── apple-notes/
+│   ├── bear-notes/
+│   ├── spotify-player/
+│   └── ...
+└── ...
+
+~/Projects/localllm-hub/                  # ★ THIS PROJECT — local AI infrastructure
+├── CLAUDE.md                             # THIS FILE
+├── config.local.json                     # Runtime config overrides
+└── packages/dashboard/                   # Monitoring dashboard
+```
+
+### clawdbot.json: Main Configuration
+
+Location: `~/.clawdbot/clawdbot.json`
+Edit via: Dashboard UI (`/api/clawdbot/config`) or `clawdbot gateway config.patch`
+
+#### Key Sections
+
+**`agents.defaults`** — Controls model, thinking, memory, compaction:
+```jsonc
+{
+  "model": { "primary": "anthropic/claude-opus-4-5" },
+  "models": {
+    "anthropic/claude-opus-4-5": { "alias": "opus" },
+    "anthropic/claude-sonnet-4-5": { "alias": "sonnet" }
+  },
+  "workspace": "/Users/yuzucchi/clawd",          // Agent workspace root
+  "thinkingDefault": "high",                      // Reasoning level: off|low|high
+  "verboseDefault": "full",                       // Tool output verbosity
+  "maxConcurrent": 4,                             // Max concurrent tool calls
+  "subagents": { "maxConcurrent": 8 },            // Max spawned sub-agents
+  "typingMode": "thinking",                       // Show typing indicator during thinking
+  "heartbeat": { "includeReasoning": true },      // Include reasoning in heartbeat responses
+
+  "memorySearch": {
+    "enabled": true,
+    "sources": ["memory", "sessions"],
+    "provider": "openai",                         // Uses OpenAI-compatible API (Ollama)
+    "remote": {
+      "baseUrl": "http://127.0.0.1:11434/v1",    // Ollama OpenAI-compat endpoint
+      "apiKey": "ollama"
+    },
+    "fallback": "local",                          // Fallback to local embeddings
+    "model": "mxbai-embed-large",                 // Embedding model (1024-dim)
+    "store": { "vector": { "enabled": true } },
+    "sync": { "watch": true },                    // Watch memory files for changes
+    "query": { "hybrid": { "enabled": true } },   // Hybrid keyword + vector search
+    "cache": { "enabled": true }
+  },
+
+  "compaction": {
+    "reserveTokensFloor": 10000,                  // Always keep 10k tokens free
+    "memoryFlush": {
+      "enabled": true,
+      "softThresholdTokens": 180000,              // Trigger flush at 180k/200k (90%)
+      "prompt": "...",                             // Flush prompt (instructs agent to save context)
+      "systemPrompt": "..."                        // System message for flush
+    }
+  }
+}
+```
+
+**`channels`** — Messaging surfaces:
+```jsonc
+{
+  "telegram": { /* bot token, chat IDs, reaction config */ },
+  "imessage": { /* iMessage bridge config */ }
+}
+```
+
+**`gateway`** — Network settings:
+```jsonc
+{
+  "port": 18789,
+  "mode": "local",
+  "bind": "loopback",
+  "controlUi": { "enabled": true },
+  "auth": { "mode": "password", "token": "...", "password": "..." }
+}
+```
+
+**`hooks`** — Internal event hooks:
+```jsonc
+{
+  "internal": {
+    "entries": {
+      "boot-md": { "enabled": true },           // Load workspace .md files on boot
+      "command-logger": { "enabled": true },     // Log tool calls
+      "session-memory": { "enabled": true }      // Persist session memory
+    }
+  }
+}
+```
+
+**`cron`** — Scheduled tasks: `{ "enabled": true }`
+
+### Workspace Files: Agent Behavior
+
+These files are **injected into every Claude session** as context (~7k tokens total):
+
+| File | Purpose | Edit When |
+|------|---------|-----------|
+| `AGENTS.md` | ★ Master behavior rules, orchestration patterns, code task rules, validation checklist | Adding new behavioral rules or patterns |
+| `SOUL.md` | Personality, tone, boundaries, core truths | Changing agent persona or communication style |
+| `USER.md` | User profile (name, timezone, working style, preferences) | Updating user preferences |
+| `IDENTITY.md` | Agent name (Zoid), emoji (🦑), creature type | Changing agent identity |
+| `TOOLS.md` | Tool-specific notes, camera names, SSH hosts, script docs | Adding new tools or environment info |
+| `HEARTBEAT.md` | What to check during heartbeat polls (agents, emails, follow-ups) | Changing periodic monitoring tasks |
+| `MEMORY.md` | Long-term curated memory (decisions, lessons, key context) | Agent updates this itself during compaction |
+
+**⚠️ Token budget:** These files cost ~7k tokens combined. Every byte counts against the 200k window. Keep them lean — move verbose content to memory/ files that are retrieved on demand via semantic search.
+
+### Skills: Extending Agent Capabilities
+
+**Installed skills (33+):** `~/clawd/skills/`
+**Built-in skills (30+):** `/opt/homebrew/lib/node_modules/clawdbot/skills/`
+
+Each skill has a `SKILL.md` that the agent reads on demand when a matching task is detected.
+
+Key custom skills:
+| Skill | Purpose |
+|-------|---------|
+| `claude-code-wingman` | Spawn Claude Code in tmux (uses work API, saves budget) |
+| `coding-orchestration` | Multi-agent coding with git worktrees |
+| `self-improving-agent` | Captures learnings, errors, corrections |
+| `local-llm-optimization` | Model selection guide for M4 Max |
+| `clawdbot-cron` | Scheduled tasks and reminders |
+| `agent-development` | Creating new agent configurations |
+
+### How to Modify Agent Behavior
+
+| Want to change... | Edit this file | How |
+|---|---|---|
+| Default model | `~/.clawdbot/clawdbot.json` → `agents.defaults.model.primary` | Dashboard Config panel or `clawdbot gateway config.patch` |
+| Thinking level | `~/.clawdbot/clawdbot.json` → `agents.defaults.thinkingDefault` | `off`, `low`, or `high` |
+| Memory search settings | `~/.clawdbot/clawdbot.json` → `agents.defaults.memorySearch` | Provider, model, hybrid search, caching |
+| Compaction threshold | `~/.clawdbot/clawdbot.json` → `agents.defaults.compaction` | `softThresholdTokens` (default 180000) |
+| Flush prompt | `~/.clawdbot/clawdbot.json` → `agents.defaults.compaction.memoryFlush.prompt` | What agent does when context is almost full |
+| Agent personality | `~/clawd/SOUL.md` | Tone, boundaries, core truths |
+| Agent rules | `~/clawd/AGENTS.md` | Behavioral instructions, orchestration patterns |
+| Heartbeat tasks | `~/clawd/HEARTBEAT.md` | What to check during periodic polls |
+| Add a skill | `~/clawd/skills/<name>/SKILL.md` | Create skill directory + SKILL.md |
+| Embedding config | `~/Projects/localllm-hub/config.local.json` | Chunk size, overlap, model |
+| Dashboard | `~/Projects/localllm-hub/packages/dashboard/` | `server.js` (API) + `public/index.html` (UI) |
+
+---
+
 ## Quick Reference
 
 ```bash
