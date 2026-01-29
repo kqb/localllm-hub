@@ -468,16 +468,22 @@ No Python dependencies. No Docker. Everything runs natively on macOS with Node.j
 2. Add workspace reference in root `package.json` (automatic via `"workspaces": ["packages/*"]`)
 3. Import shared utilities: `require('../../shared/ollama')`, `require('../../shared/config')`
 4. Add CLI subcommand in root `cli.js` with lazy import
-5. Run `npm install` from root to link workspace
+5. **Add dashboard panel** — API endpoint + UI card (see below). THIS IS NOT OPTIONAL.
+6. Run `npm install` from root to link workspace
 
 ### Adding a Dashboard Panel
 
-1. **Backend:** Add `app.get('/api/<endpoint>')` route in `server.js`
-2. **HTML:** Add `<section class="card" id="<name>-card"><h2>Title</h2><div id="<name>-content">Loading...</div></section>` in `index.html`
-3. **CSS:** Add styles in `<style>` block, use existing CSS variables
-4. **JS:** Add `async function load<Name>() { ... }` that fetches API and renders
+Every new feature MUST include a dashboard panel. Follow this checklist:
+
+1. **Backend API:** Add `app.get('/api/<endpoint>')` route in `server.js`. For editable config, add matching `app.post('/api/<endpoint>')`.
+2. **HTML Card:** Add `<section class="card" id="<name>-card"><h2>Title</h2><div id="<name>-content">Loading...</div></section>` in `index.html`
+3. **CSS:** Add styles in `<style>` block. Use existing CSS variables (`--bg`, `--bg2`, `--bg3`, `--text`, `--text2`, `--accent`, `--green`, `--yellow`, `--red`, `--border`, `--radius`). Use existing classes (`.card`, `.kv`, `.stat`, `.badge`, `.btn`).
+4. **JS Loader:** Add `async function load<Name>() { ... }` that fetches API and renders. Use `escHtml()` for all text content. Use `$()` helper for getElementById.
 5. **Init:** Add to `Promise.all([..., load<Name>()])` in init block
 6. **Refresh:** Add `setInterval(load<Name>, <ms>)` if auto-refresh needed
+7. **Config UI:** If the feature has settings, add form controls (inputs, selects, toggles) with save buttons that POST to the API
+8. **Feedback:** Show success/error toast or status indicator after saves
+9. **Document:** Update this CLAUDE.md with the new panel, API endpoints, and config fields
 
 ### Testing
 
@@ -628,22 +634,65 @@ The dashboard (`http://localhost:3847`, LAN: `http://192.168.1.49:3847`) is the 
 | **Daemons** | Launchd service status, log viewers, restart buttons | 60s |
 | **Packages** | Health grid for all localllm packages | 60s |
 
-### Planned Dashboard Enhancements
+### Planned Dashboard Panels (All Required)
 
-- [ ] **Model Manager** — Pull/remove Ollama models, see VRAM usage, warm/cold status
-- [ ] **Route Switcher UI** — Configure triage buckets, test routing decisions, see cost savings
-- [ ] **Token Economics** — Visualize cost per session, model usage breakdown, savings from local routing
-- [ ] **RAG Quality Inspector** — Browse indexed chunks, test search queries, see relevance scores, tune chunk size
-- [ ] **Prompt Editor** — Edit system prompts, flush prompts, compaction settings with live preview
-- [ ] **Alerts & Notifications** — Context window warnings, model OOM alerts, daemon failures
+Every configurable aspect of the system MUST have a UI panel. Status → Config → Test → Deploy, all from the browser.
+
+**Model Management:**
+- [ ] **Model Manager** — Pull/remove/update Ollama models from UI. Show VRAM usage, loaded vs cold status, model sizes. Warm/unload buttons. Set `OLLAMA_KEEP_ALIVE` per model.
+- [ ] **Model Budget Visualizer** — 36GB memory bar showing OS overhead, loaded models, available headroom. Warn when approaching limits.
+
+**Routing & Triage:**
+- [ ] **Route Switcher** — Configure triage buckets (high/low/local ops), edit intent detectors, map to models. Test panel: type a prompt → see which bucket it routes to + why. Cost savings tracker.
+- [ ] **Router Prompt Editor** — Edit the Qwen 7B router prompt template. Test with sample inputs. See JSON routing output.
+
+**RAG & Search:**
+- [ ] **RAG Inspector** — Browse indexed chunks with source/line refs. Test search queries → see relevance scores. Chunk size/overlap sliders with live reindex preview. Compare old vs new chunking.
+- [ ] **Embedding Explorer** — Visualize embedding space (2D projection). See which memories cluster together. Find gaps in coverage.
+
+**Context & Cost:**
+- [ ] **Token Economics** — Cost per session, per model. Savings from local routing. Daily/weekly/monthly trends. Budget alerts.
+- [ ] **Compaction Settings** — Edit flush threshold (currently 180k), flush prompt, reserve floor. Preview what gets flushed.
+
+**Agent Behavior:**
+- [ ] **Prompt Editor** — Edit AGENTS.md, SOUL.md, USER.md, HEARTBEAT.md, IDENTITY.md from dashboard with live preview of token cost. Syntax highlighting for markdown. Save triggers gateway restart.
+- [ ] **Skills Manager** — Browse installed skills (33+), enable/disable, view SKILL.md, install from ClawdHub. Show which skills are triggered most often.
+- [ ] **Corrections Viewer** — Browse memory/corrections/ files. See behavioral corrections over time. Mark as resolved/active.
+
+**System:**
+- [ ] **Alerts & Notifications** — Context window warnings, model OOM alerts, daemon failures, ingestion errors. Configurable thresholds from UI.
+- [ ] **Clawdbot Config Editor** — Full clawdbot.json editor: model selection, thinking level, memory search settings, channel configs, heartbeat intervals. Validated JSON with schema hints.
+- [ ] **Session Manager** — Browse all sessions, view/delete old transcripts, see token usage per session, export conversations.
+- [ ] **Cron Manager** — View/add/edit/delete cron jobs. See run history. Test fire manually.
 
 ### Design Principles
 
+- **Dashboard-first:** Every feature, config, and capability MUST have a dashboard UI. If a user can't do it from the browser, it's not done. CLI and config files are implementation details — the dashboard is the product.
 - **Localhost-only admin tool** — No auth required on loopback. LAN access for mobile monitoring.
 - **Single-page vanilla HTML/CSS/JS** — No build step, no framework. Copy-paste deployable.
 - **Dark theme** — CSS variables for consistent styling across all panels.
 - **Real-time** — WebSocket for push updates, polling for panel-specific data.
 - **Progressive disclosure** — Overview first, click to expand details (agent output, tool arguments, thinking blocks).
+- **Full customizability** — Every config value, threshold, model selection, and behavior rule must be editable from the dashboard. No SSH-only settings.
+
+### The Dashboard-First Rule (MANDATORY)
+
+**Every feature built for this project MUST include a dashboard UI component.** This is non-negotiable.
+
+When building ANY new capability:
+1. **Backend:** Add API endpoint(s) to `server.js`
+2. **Frontend:** Add a dashboard panel/card to `index.html`
+3. **Config:** If configurable, add GET + POST endpoints and UI controls (inputs, toggles, dropdowns)
+4. **Status:** If it has state, show it in the dashboard with real-time updates
+
+**Examples of what this means:**
+- Adding a new model? → Dashboard model manager lets you pull/remove/warm models
+- Adding route switching? → Dashboard shows routing decisions, lets you configure buckets
+- Changing chunk size? → Dashboard has a slider, shows before/after search quality
+- New daemon? → Dashboard shows its status, logs, restart button
+- New triage rule? → Dashboard has a rule editor with test inputs
+
+**If it's config-file-only, it's not shipped.** The dashboard IS the product.
 
 ---
 
@@ -838,19 +887,25 @@ Key custom skills:
 
 ### How to Modify Agent Behavior
 
-| Want to change... | Edit this file | How |
-|---|---|---|
-| Default model | `~/.clawdbot/clawdbot.json` → `agents.defaults.model.primary` | Dashboard Config panel or `clawdbot gateway config.patch` |
-| Thinking level | `~/.clawdbot/clawdbot.json` → `agents.defaults.thinkingDefault` | `off`, `low`, or `high` |
-| Memory search settings | `~/.clawdbot/clawdbot.json` → `agents.defaults.memorySearch` | Provider, model, hybrid search, caching |
-| Compaction threshold | `~/.clawdbot/clawdbot.json` → `agents.defaults.compaction` | `softThresholdTokens` (default 180000) |
-| Flush prompt | `~/.clawdbot/clawdbot.json` → `agents.defaults.compaction.memoryFlush.prompt` | What agent does when context is almost full |
-| Agent personality | `~/clawd/SOUL.md` | Tone, boundaries, core truths |
-| Agent rules | `~/clawd/AGENTS.md` | Behavioral instructions, orchestration patterns |
-| Heartbeat tasks | `~/clawd/HEARTBEAT.md` | What to check during periodic polls |
-| Add a skill | `~/clawd/skills/<name>/SKILL.md` | Create skill directory + SKILL.md |
-| Embedding config | `~/Projects/localllm-hub/config.local.json` | Chunk size, overlap, model |
-| Dashboard | `~/Projects/localllm-hub/packages/dashboard/` | `server.js` (API) + `public/index.html` (UI) |
+**Dashboard is always the primary interface.** Files listed for agent/developer reference — users should never need to edit files directly.
+
+| Want to change... | Dashboard Panel | Backing File | Field |
+|---|---|---|---|
+| Default model | Clawdbot Config | `~/.clawdbot/clawdbot.json` | `agents.defaults.model.primary` |
+| Thinking level | Clawdbot Config | `~/.clawdbot/clawdbot.json` | `agents.defaults.thinkingDefault` (`off`/`low`/`high`) |
+| Memory search | Clawdbot Config | `~/.clawdbot/clawdbot.json` | `agents.defaults.memorySearch.*` |
+| Compaction threshold | Compaction Settings | `~/.clawdbot/clawdbot.json` | `agents.defaults.compaction.softThresholdTokens` |
+| Flush prompt | Compaction Settings | `~/.clawdbot/clawdbot.json` | `agents.defaults.compaction.memoryFlush.prompt` |
+| Agent personality | Prompt Editor | `~/clawd/SOUL.md` | Full file edit with token preview |
+| Agent rules | Prompt Editor | `~/clawd/AGENTS.md` | Full file edit with token preview |
+| Heartbeat tasks | Prompt Editor | `~/clawd/HEARTBEAT.md` | Full file edit with token preview |
+| User profile | Prompt Editor | `~/clawd/USER.md` | Full file edit with token preview |
+| Skills | Skills Manager | `~/clawd/skills/*/SKILL.md` | Browse, enable/disable, install |
+| Embedding config | RAG Inspector | `config.local.json` | `embedding.chunkSize`, `chunkOverlap` |
+| Ollama models | Model Manager | Ollama API | Pull, remove, warm, configure keep-alive |
+| Routing rules | Route Switcher | `config.local.json` | Triage buckets + intent detectors |
+| Cron jobs | Cron Manager | Clawdbot cron API | Add, edit, delete, test-fire |
+| Daemons | Daemons panel | launchd | Status, logs, restart |
 
 ---
 
