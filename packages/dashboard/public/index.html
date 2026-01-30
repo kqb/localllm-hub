@@ -153,6 +153,32 @@
   .agent-input-bar input[type=text] { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; }
   .agent-input-bar input:focus { border-color: var(--accent); }
 
+  /* Budget bar */
+  .budget-bar { position: relative; height: 36px; background: var(--bg3); border-radius: 4px; overflow: hidden; display: flex; }
+  .budget-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); overflow: hidden; white-space: nowrap; transition: width .4s ease; }
+  .budget-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
+  .budget-legend span { display: flex; align-items: center; gap: 4px; }
+  .budget-legend .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+  /* Model manager table */
+  .mm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mm-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .mm-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .mm-table tr:last-child td { border-bottom: none; }
+  .mm-table .actions { display: flex; gap: 4px; }
+
+  /* Route tiers table */
+  .tier-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  .tier-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .tier-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .tier-table tr:last-child td { border-bottom: none; }
+
+  /* RAG chunk list */
+  .rag-chunk { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; margin-bottom: 6px; }
+  .rag-chunk .rag-meta { font-size: 12px; color: var(--text2); margin-bottom: 4px; display: flex; gap: 8px; }
+  .rag-chunk .rag-text { font-size: 13px; color: var(--text); max-height: 60px; overflow: hidden; cursor: pointer; white-space: pre-wrap; }
+  .rag-chunk .rag-text.expanded { max-height: none; }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
@@ -270,6 +296,36 @@
     <div id="packages-grid" class="grid grid-6">
       <span class="loading-text"><span class="spinner"></span> Loading...</span>
     </div>
+  </section>
+
+  <!-- Model Manager -->
+  <section class="card" id="model-mgr-card">
+    <h2>🗂️ Model Manager</h2>
+    <div id="model-mgr-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Model Budget Visualizer -->
+  <section class="card" id="budget-card">
+    <h2>💾 Model Budget Visualizer</h2>
+    <div id="budget-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Route Switcher -->
+  <section class="card" id="routes-card">
+    <h2>🚦 Route Switcher</h2>
+    <div id="routes-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- RAG Inspector -->
+  <section class="card" id="rag-card">
+    <h2>🔬 RAG Inspector</h2>
+    <div id="rag-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Token Economics -->
+  <section class="card" id="economics-card">
+    <h2>💰 Token Economics</h2>
+    <div id="economics-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 </main>
 
@@ -1411,6 +1467,412 @@ async function loadPackages() {
   }
 }
 
+// --- Model Manager ---
+// NOTE: This is a localhost-only admin dashboard (no external users).
+// All data rendered via innerHTML comes from local Ollama API and local files only.
+// escHtml() is applied to all dynamic text for defense-in-depth against any future data source changes.
+async function loadModelManager() {
+  try {
+    const res = await fetch(API + '/api/models/available');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    const models = d.models || [];
+
+    let html = '';
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+    html += '<input type="text" id="mm-pull-name" placeholder="Model name to pull (e.g. llama3:8b)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-size:13px;outline:none" />';
+    html += '<button class="btn" onclick="mmPull()">Pull</button>';
+    html += '</div>';
+    html += '<div id="mm-status" style="font-size:13px;color:var(--text2);margin-bottom:8px;display:none"></div>';
+
+    if (!models.length) {
+      html += '<div class="empty">No models found in Ollama</div>';
+    } else {
+      html += '<table class="mm-table"><thead><tr><th>Model</th><th>Size</th><th>Family</th><th>Quant</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+      for (const m of models) {
+        const sizeGB = (m.size / 1073741824).toFixed(1);
+        const badge = m.loaded ? '<span class="badge green">Loaded</span>' : '<span class="badge yellow">Cold</span>';
+        html += '<tr>';
+        html += '<td><strong>' + escHtml(m.name) + '</strong></td>';
+        html += '<td>' + sizeGB + ' GB</td>';
+        html += '<td>' + escHtml(m.family || '\u2014') + '</td>';
+        html += '<td>' + escHtml(m.quantization || '\u2014') + '</td>';
+        html += '<td>' + badge + '</td>';
+        html += '<td class="actions">';
+        if (!m.loaded) {
+          html += '<button class="btn sm outline" onclick="mmWarm(\'' + escHtml(m.name) + '\')">Warm</button>';
+        } else {
+          html += '<button class="btn sm outline" onclick="mmUnload(\'' + escHtml(m.name) + '\')">Unload</button>';
+        }
+        html += '<button class="btn sm danger" onclick="mmDelete(\'' + escHtml(m.name) + '\')">Delete</button>';
+        html += '</td></tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // Safety: localhost-only admin tool, all data from local Ollama, escHtml for defense in depth
+    $('model-mgr-content').innerHTML = html;
+  } catch (e) {
+    $('model-mgr-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+function mmShowStatus(msg, color) {
+  const el = $('mm-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = color || 'var(--text2)';
+  el.style.display = 'block';
+}
+
+async function mmPull() {
+  const name = $('mm-pull-name').value.trim();
+  if (!name) return;
+  mmShowStatus('Pulling ' + name + '... (this may take a while)', 'var(--accent)');
+  logOp('Pulling model: ' + name);
+  try {
+    const res = await fetch(API + '/api/models/pull', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    mmShowStatus('Pulled ' + name + ' successfully', 'var(--green)');
+    logOp('Model pulled: ' + name);
+    loadModelManager();
+    loadBudget();
+  } catch (e) {
+    mmShowStatus('Pull failed: ' + e.message, 'var(--red)');
+    logOp('Pull error: ' + e.message);
+  }
+}
+
+async function mmWarm(name) {
+  mmShowStatus('Warming ' + name + '...', 'var(--accent)');
+  logOp('Warming model: ' + name);
+  try {
+    const res = await fetch(API + '/api/models/warm', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    mmShowStatus(name + ' loaded into memory', 'var(--green)');
+    logOp('Model warmed: ' + name);
+    loadModelManager();
+    loadBudget();
+  } catch (e) {
+    mmShowStatus('Warm failed: ' + e.message, 'var(--red)');
+  }
+}
+
+async function mmUnload(name) {
+  mmShowStatus('Unloading ' + name + '...', 'var(--accent)');
+  logOp('Unloading model: ' + name);
+  try {
+    const res = await fetch(API + '/api/models/warm', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, keep_alive: '0'}) });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    mmShowStatus(name + ' unloaded from memory', 'var(--green)');
+    logOp('Model unloaded: ' + name);
+    loadModelManager();
+    loadBudget();
+  } catch (e) {
+    mmShowStatus('Unload failed: ' + e.message, 'var(--red)');
+  }
+}
+
+async function mmDelete(name) {
+  if (!confirm('Delete model "' + name + '"? This cannot be undone.')) return;
+  mmShowStatus('Deleting ' + name + '...', 'var(--red)');
+  logOp('Deleting model: ' + name);
+  try {
+    const res = await fetch(API + '/api/models/delete', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    mmShowStatus(name + ' deleted', 'var(--green)');
+    logOp('Model deleted: ' + name);
+    loadModelManager();
+    loadBudget();
+  } catch (e) {
+    mmShowStatus('Delete failed: ' + e.message, 'var(--red)');
+  }
+}
+
+// --- Model Budget Visualizer ---
+async function loadBudget() {
+  try {
+    const res = await fetch(API + '/api/budget');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    const totalGB = d.totalRam / 1073741824;
+    const osGB = d.osOverhead / 1073741824;
+    const freeGB = d.freeHeadroom / 1073741824;
+
+    const osPct = (d.osOverhead / d.totalRam * 100).toFixed(1);
+    const freePct = (d.freeHeadroom / d.totalRam * 100).toFixed(1);
+
+    const parts = [];
+
+    // Build bar segments
+    parts.push('<div class="budget-bar">');
+    parts.push('<div class="budget-seg" style="width:' + osPct + '%;background:var(--red);opacity:.7">' + (osPct > 8 ? osGB.toFixed(1) + 'G' : '') + '</div>');
+
+    const loaded = (d.models || []).filter(m => m.loaded);
+    const cold = (d.models || []).filter(m => !m.loaded);
+    const modelColors = ['var(--accent)', 'var(--purple)', 'var(--green)', 'var(--orange)', 'var(--yellow)'];
+    let ci = 0;
+    for (const m of loaded) {
+      const mPct = (m.size / d.totalRam * 100).toFixed(1);
+      const color = modelColors[ci++ % modelColors.length];
+      const label = mPct > 5 ? escHtml(m.name.split(':')[0]) : '';
+      parts.push('<div class="budget-seg" style="width:' + mPct + '%;background:' + color + ';opacity:.8">' + label + '</div>');
+    }
+
+    parts.push('<div class="budget-seg" style="width:' + freePct + '%;background:var(--bg);border:1px dashed var(--border)">');
+    parts.push('<span style="color:var(--text2)">' + freeGB.toFixed(1) + 'G free</span></div>');
+    parts.push('</div>');
+
+    // Legend
+    parts.push('<div class="budget-legend">');
+    parts.push('<span><span class="swatch" style="background:var(--red);opacity:.7"></span> OS ~' + osGB.toFixed(0) + 'GB</span>');
+    ci = 0;
+    for (const m of loaded) {
+      const color = modelColors[ci++ % modelColors.length];
+      parts.push('<span><span class="swatch" style="background:' + color + ';opacity:.8"></span> ' + escHtml(m.name) + ' ' + (m.size / 1073741824).toFixed(1) + 'GB</span>');
+    }
+    parts.push('<span><span class="swatch" style="background:var(--bg);border:1px dashed var(--border)"></span> Free ' + freeGB.toFixed(1) + 'GB</span>');
+    parts.push('</div>');
+
+    // Summary stats
+    parts.push('<div style="display:flex;gap:24px;margin-top:12px">');
+    parts.push('<div class="stat"><span class="label">Total RAM</span><span class="value sm">' + totalGB.toFixed(0) + ' GB</span></div>');
+    parts.push('<div class="stat"><span class="label">Models Loaded</span><span class="value sm">' + loaded.length + '</span></div>');
+    parts.push('<div class="stat"><span class="label">Models Available</span><span class="value sm">' + (d.models || []).length + '</span></div>');
+    parts.push('<div class="stat"><span class="label">Headroom</span><span class="value sm" style="color:' + (freeGB < 5 ? 'var(--red)' : freeGB < 10 ? 'var(--yellow)' : 'var(--green)') + '">' + freeGB.toFixed(1) + ' GB</span></div>');
+    parts.push('</div>');
+
+    if (cold.length) {
+      parts.push('<div style="margin-top:12px;font-size:12px;color:var(--text2)">Cold models: ');
+      parts.push(cold.map(m => escHtml(m.name) + ' (' + (m.size / 1073741824).toFixed(1) + 'G)').join(', '));
+      parts.push('</div>');
+    }
+
+    // Safety: localhost-only admin tool, data from local Ollama API, escHtml for defense in depth
+    $('budget-content').innerHTML = parts.join('');
+  } catch (e) {
+    $('budget-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+// --- Route Switcher ---
+async function loadRoutes() {
+  try {
+    const res = await fetch(API + '/api/routes/config');
+    const d = await res.json();
+    const tiers = d.tiers || [];
+
+    const parts = [];
+
+    // 5-tier table
+    parts.push('<table class="tier-table"><thead><tr><th>Tier</th><th>Model</th><th>Role</th><th>Best Use Case</th><th>Cost</th></tr></thead><tbody>');
+    const tierColors = { S1: 'purple', S2: 'orange', A: 'blue', B: 'green', C: 'yellow' };
+    for (const t of tiers) {
+      parts.push('<tr>');
+      parts.push('<td><span class="badge ' + (tierColors[t.tier] || 'blue') + '">' + escHtml(t.tier) + '</span></td>');
+      parts.push('<td><strong>' + escHtml(t.model) + '</strong></td>');
+      parts.push('<td>' + escHtml(t.role) + '</td>');
+      parts.push('<td style="font-size:12px;color:var(--text2)">' + escHtml(t.use) + '</td>');
+      parts.push('<td>' + escHtml(t.cost) + '</td>');
+      parts.push('</tr>');
+    }
+    parts.push('</tbody></table>');
+
+    parts.push('<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Router model: <span class="badge blue">' + escHtml(d.routerModel || '?') + '</span></div>');
+
+    // Test panel
+    parts.push('<h3 style="margin-bottom:8px">Test Routing</h3>');
+    parts.push('<div style="display:flex;gap:8px;margin-bottom:8px">');
+    parts.push('<input type="text" id="route-test-input" placeholder="Type a prompt to test routing..." style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-size:13px;outline:none" />');
+    parts.push('<button class="btn" onclick="testRoute()">Route</button>');
+    parts.push('</div>');
+    parts.push('<div id="route-test-result" style="display:none;background:var(--bg3);border-radius:var(--radius);padding:12px;font-family:monospace;font-size:13px"></div>');
+
+    // Safety: localhost-only admin tool, data from local config, escHtml for defense in depth
+    $('routes-content').innerHTML = parts.join('');
+
+    const inp = $('route-test-input');
+    if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') testRoute(); });
+  } catch (e) {
+    $('routes-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function testRoute() {
+  const prompt = $('route-test-input').value.trim();
+  if (!prompt) return;
+  const el = $('route-test-result');
+  el.style.display = 'block';
+  el.textContent = 'Routing...';
+  logOp('Testing route for: "' + prompt.slice(0, 50) + '..."');
+  try {
+    const res = await fetch(API + '/api/routes/test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({prompt}) });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    const routeColors = { gemini_3_pro: 'purple', claude_opus: 'orange', claude_sonnet: 'blue', claude_haiku: 'green', local_qwen: 'yellow' };
+    const color = routeColors[d.route] || 'blue';
+    // Safety: localhost-only admin tool, result from local Ollama triage model, escHtml for defense in depth
+    el.innerHTML = '<div style="margin-bottom:8px"><span class="badge ' + color + '" style="font-size:14px;padding:4px 12px">' + escHtml(d.route) + '</span> <span class="badge ' + (d.priority === 'high' ? 'red' : d.priority === 'low' ? 'green' : 'yellow') + '">' + escHtml(d.priority) + '</span></div>' +
+      '<div style="color:var(--text2)">' + escHtml(d.reason) + '</div>';
+    logOp('Route result: ' + d.route + ' (' + d.priority + ')');
+  } catch (e) {
+    el.textContent = 'Error: ' + e.message;
+    logOp('Route test error: ' + e.message);
+  }
+}
+
+// --- RAG Inspector ---
+let _ragOffset = 0;
+let _ragSource = 'memory';
+
+async function loadRag() {
+  try {
+    const [chunksRes, cfgRes] = await Promise.all([
+      fetch(API + '/api/rag/chunks?source=' + _ragSource + '&offset=' + _ragOffset + '&limit=20'),
+      fetch(API + '/api/rag/config'),
+    ]);
+    const chunks = await chunksRes.json();
+    const cfg = await cfgRes.json();
+
+    const parts = [];
+
+    // Config display
+    parts.push('<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;align-items:center">');
+    parts.push('<div style="font-size:13px"><span style="color:var(--text2)">Chunk Size:</span> <strong>' + cfg.chunkSize + '</strong> chars</div>');
+    parts.push('<div style="font-size:13px"><span style="color:var(--text2)">Overlap:</span> <strong>' + cfg.chunkOverlap + '</strong> chars</div>');
+    parts.push('<div style="font-size:13px"><span style="color:var(--text2)">Dimensions:</span> <strong>' + cfg.dimension + '</strong></div>');
+    parts.push('<div style="font-size:13px"><span style="color:var(--text2)">Model:</span> <span class="badge blue">' + escHtml(cfg.model) + '</span></div>');
+    parts.push('</div>');
+
+    // Source selector + controls
+    parts.push('<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">');
+    parts.push('<select id="rag-source" onchange="ragChangeSource(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;color:var(--text);font-size:13px">');
+    parts.push('<option value="memory"' + (_ragSource === 'memory' ? ' selected' : '') + '>Memory Chunks</option>');
+    parts.push('<option value="chat"' + (_ragSource === 'chat' ? ' selected' : '') + '>Chat Chunks</option>');
+    parts.push('</select>');
+    parts.push('<span style="font-size:13px;color:var(--text2)">' + (chunks.total || 0).toLocaleString() + ' total chunks</span>');
+    parts.push('<div style="margin-left:auto;display:flex;gap:6px">');
+    parts.push('<button class="btn sm outline" onclick="ragReindex()">Reindex</button>');
+    parts.push('<button class="btn sm outline" onclick="loadRag()">Refresh</button>');
+    parts.push('</div>');
+    parts.push('</div>');
+
+    // Chunk list
+    parts.push('<div id="rag-chunks" style="max-height:500px;overflow-y:auto">');
+    if (!chunks.chunks || !chunks.chunks.length) {
+      parts.push('<div class="empty">No chunks found</div>');
+    } else {
+      for (const c of chunks.chunks) {
+        parts.push('<div class="rag-chunk">');
+        parts.push('<div class="rag-meta">');
+        parts.push('<span class="badge blue">#' + c.id + '</span>');
+        if (c.file) parts.push('<span>' + escHtml(c.file) + '</span>');
+        if (c.start_line != null) parts.push('<span>L' + c.start_line + '-' + c.end_line + '</span>');
+        if (c.session_id) parts.push('<span>session:' + escHtml(c.session_id.slice(0, 8)) + '</span>');
+        if (c.start_ts) parts.push('<span>' + escHtml(c.start_ts) + '</span>');
+        const textLen = (c.text || '').length;
+        parts.push('<span>' + textLen + ' chars</span>');
+        parts.push('</div>');
+        const preview = (c.text || '').slice(0, 200);
+        parts.push('<div class="rag-text" onclick="this.classList.toggle(\'expanded\')">' + escHtml(preview) + (textLen > 200 ? '...' : '') + '</div>');
+        parts.push('</div>');
+      }
+    }
+    parts.push('</div>');
+
+    // Pagination
+    if (chunks.total > 20) {
+      parts.push('<div style="display:flex;gap:8px;margin-top:8px;justify-content:center">');
+      if (_ragOffset > 0) parts.push('<button class="btn sm outline" onclick="ragPage(-1)">Prev</button>');
+      parts.push('<span style="font-size:12px;color:var(--text2);align-self:center">' + (_ragOffset + 1) + '-' + Math.min(_ragOffset + 20, chunks.total) + ' of ' + chunks.total + '</span>');
+      if (_ragOffset + 20 < chunks.total) parts.push('<button class="btn sm outline" onclick="ragPage(1)">Next</button>');
+      parts.push('</div>');
+    }
+
+    // Safety: localhost-only admin tool, chunk data from local SQLite, escHtml for defense in depth
+    $('rag-content').innerHTML = parts.join('');
+  } catch (e) {
+    $('rag-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+function ragChangeSource(source) {
+  _ragSource = source;
+  _ragOffset = 0;
+  loadRag();
+}
+
+function ragPage(dir) {
+  _ragOffset = Math.max(0, _ragOffset + dir * 20);
+  loadRag();
+}
+
+async function ragReindex() {
+  logOp('RAG reindex started...');
+  try {
+    const res = await fetch(API + '/api/rag/reindex', { method: 'POST' });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    logOp('RAG reindex triggered: ' + d.source);
+  } catch (e) {
+    logOp('RAG reindex error: ' + e.message);
+  }
+}
+
+// --- Token Economics ---
+async function loadEconomics() {
+  try {
+    const res = await fetch(API + '/api/economics');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    const models = Object.entries(d.models || {});
+    if (!models.length) {
+      $('economics-content').textContent = 'No token usage data yet';
+      return;
+    }
+
+    const parts = [];
+
+    let totalInput = 0, totalOutput = 0;
+    for (const [, s] of models) { totalInput += s.inputTokens; totalOutput += s.outputTokens; }
+
+    parts.push('<div style="display:flex;gap:24px;margin-bottom:16px;flex-wrap:wrap">');
+    parts.push('<div class="stat"><span class="label">Sessions</span><span class="value sm">' + (d.sessions || 0) + '</span></div>');
+    parts.push('<div class="stat"><span class="label">Total Input</span><span class="value sm">' + (totalInput / 1000000).toFixed(2) + 'M</span></div>');
+    parts.push('<div class="stat"><span class="label">Total Output</span><span class="value sm">' + (totalOutput / 1000000).toFixed(2) + 'M</span></div>');
+    parts.push('<div class="stat"><span class="label">Est. API Cost</span><span class="value sm" style="color:var(--red)">$' + (d.totalEstimatedCost || 0).toFixed(2) + '</span></div>');
+    parts.push('<div class="stat"><span class="label">Actual Cost</span><span class="value sm" style="color:var(--green)">$0 (Max)</span></div>');
+    parts.push('</div>');
+
+    // Per-model table
+    parts.push('<table class="mm-table"><thead><tr><th>Model</th><th>Messages</th><th>Input Tokens</th><th>Output Tokens</th><th>Est. API Cost</th></tr></thead><tbody>');
+    const sorted = models.sort((a, b) => (b[1].inputTokens + b[1].outputTokens) - (a[1].inputTokens + a[1].outputTokens));
+    for (const [model, stats] of sorted) {
+      parts.push('<tr>');
+      parts.push('<td><strong>' + escHtml(model) + '</strong></td>');
+      parts.push('<td>' + stats.messageCount.toLocaleString() + '</td>');
+      parts.push('<td>' + stats.inputTokens.toLocaleString() + '</td>');
+      parts.push('<td>' + stats.outputTokens.toLocaleString() + '</td>');
+      parts.push('<td>' + (stats.estimatedCost != null ? '$' + stats.estimatedCost.toFixed(2) : '\u2014') + '</td>');
+      parts.push('</tr>');
+    }
+    parts.push('</tbody></table>');
+
+    parts.push('<div style="margin-top:8px;font-size:12px;color:var(--text2)">' + escHtml(d.note || '') + '</div>');
+
+    // Safety: localhost-only admin tool, token data from local JSONL files, escHtml for defense in depth
+    $('economics-content').innerHTML = parts.join('');
+  } catch (e) {
+    $('economics-content').textContent = 'Error: ' + e.message;
+  }
+}
+
 // --- WebSocket ---
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1445,7 +1907,7 @@ function connectWs() {
 
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
@@ -1453,6 +1915,10 @@ function connectWs() {
   setInterval(loadAgents, 10000);
   // Refresh full status every 60s
   setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); }, 60000);
+  // Refresh model manager and budget every 30s
+  setInterval(() => { loadModelManager(); loadBudget(); }, 30000);
+  // Refresh economics every 120s
+  setInterval(loadEconomics, 120000);
 })();
 </script>
 </body>

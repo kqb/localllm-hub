@@ -597,7 +597,7 @@ function parseSessionJsonl(sessionId) {
         role,
         text: null, thinking: null, toolCalls: [], toolResult: null,
         model: msg.model || null,
-        usage: msg.usage ? { input: msg.usage.inputTokens || 0, output: msg.usage.outputTokens || 0 } : null,
+        usage: msg.usage ? { input: msg.usage.inputTokens || msg.usage.input || 0, output: msg.usage.outputTokens || msg.usage.output || 0 } : null,
         stopReason: msg.stopReason || null,
       };
 
@@ -753,6 +753,273 @@ app.get('/api/context-monitor', async (_req, res) => {
   }
 
   res.json({ session: sessionStats, injectedFiles, injectedTotal, memory: memoryStats });
+});
+
+// --- Panel: Model Manager ---
+
+app.get('/api/models/available', async (_req, res) => {
+  const data = await ollamaFetch('/api/tags');
+  if (data.error) return res.status(502).json({ error: data.error });
+  const models = (data.models || []).map(m => ({
+    name: m.name,
+    size: m.size || 0,
+    family: m.details?.family || null,
+    parameterSize: m.details?.parameter_size || null,
+    quantization: m.details?.quantization_level || null,
+    modifiedAt: m.modified_at || null,
+  }));
+  // Check which models are currently loaded (have been used recently)
+  const psData = await ollamaFetch('/api/ps');
+  const loadedNames = new Set((psData.models || []).map(m => m.name));
+  for (const m of models) {
+    m.loaded = loadedNames.has(m.name);
+  }
+  res.json({ models });
+});
+
+app.post('/api/models/pull', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Missing model name' });
+  try {
+    const url = `${config.ollama.url}/api/pull`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, stream: false }),
+      signal: AbortSignal.timeout(600000), // 10 min for large pulls
+    });
+    if (!resp.ok) return res.status(resp.status).json({ error: `Ollama returned ${resp.status}` });
+    const data = await resp.json().catch(() => ({ status: 'success' }));
+    res.json({ status: 'pulled', name, detail: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/models/delete', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Missing model name' });
+  try {
+    const url = `${config.ollama.url}/api/delete`;
+    const resp = await fetch(url, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return res.status(resp.status).json({ error: `Ollama returned ${resp.status}` });
+    res.json({ status: 'deleted', name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/models/warm', async (req, res) => {
+  const { name, keep_alive } = req.body;
+  if (!name) return res.status(400).json({ error: 'Missing model name' });
+  try {
+    const url = `${config.ollama.url}/api/generate`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: name, prompt: '', keep_alive: keep_alive || '10m', stream: false }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!resp.ok) return res.status(resp.status).json({ error: `Ollama returned ${resp.status}` });
+    res.json({ status: 'warmed', name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Model Budget Visualizer ---
+
+app.get('/api/budget', async (_req, res) => {
+  const TOTAL_RAM = 36 * 1024 * 1024 * 1024; // 36GB
+  const OS_OVERHEAD = 9 * 1024 * 1024 * 1024; // ~9GB
+
+  const data = await ollamaFetch('/api/tags');
+  const models = data.models || [];
+
+  const psData = await ollamaFetch('/api/ps');
+  const loadedModels = psData.models || [];
+  const loadedNames = new Set(loadedModels.map(m => m.name));
+
+  const modelList = models.map(m => ({
+    name: m.name,
+    size: m.size || 0,
+    loaded: loadedNames.has(m.name),
+    family: m.details?.family || null,
+  }));
+
+  const loadedSize = modelList.filter(m => m.loaded).reduce((s, m) => s + m.size, 0);
+  const freeHeadroom = TOTAL_RAM - OS_OVERHEAD - loadedSize;
+
+  res.json({
+    totalRam: TOTAL_RAM,
+    osOverhead: OS_OVERHEAD,
+    loadedSize,
+    freeHeadroom: Math.max(0, freeHeadroom),
+    models: modelList,
+  });
+});
+
+// --- Panel: Route Switcher ---
+
+app.get('/api/routes/config', (_req, res) => {
+  const overridesPath = config._overridesPath;
+  let overrides = {};
+  if (existsSync(overridesPath)) {
+    try { overrides = JSON.parse(require('fs').readFileSync(overridesPath, 'utf-8')); } catch {}
+  }
+  res.json({
+    routes: overrides.routes || null,
+    routerModel: config.models.triage,
+    tiers: [
+      { tier: 'S1', model: 'Gemini 3 Pro', role: 'The Visionary', use: 'Deep reasoning, 1M+ context, strategic planning', cost: 'Free (browser)' },
+      { tier: 'S2', model: 'Claude 4.5 Opus', role: 'The Auditor', use: 'Critical execution, security audits, production code', cost: 'Max sub' },
+      { tier: 'A', model: 'Claude Sonnet', role: 'The Engineer', use: 'Coding loop: features, bugs, tests (80% of work)', cost: 'Max sub' },
+      { tier: 'B', model: 'Claude Haiku', role: 'The Analyst', use: 'Triage, summarization, data extraction, fast Q&A', cost: 'Max sub' },
+      { tier: 'C', model: 'Qwen 2.5 14B', role: 'The Intern', use: 'Note search, file discovery, classification, routing', cost: 'Free (local)' },
+    ],
+  });
+});
+
+app.post('/api/routes/test', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+  try {
+    const { routeToModel } = require('../triage');
+    const result = await routeToModel(prompt);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: RAG Inspector ---
+
+app.get('/api/rag/chunks', (req, res) => {
+  const source = req.query.source || 'memory';
+  const offset = parseInt(req.query.offset) || 0;
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+  const dbPath = source === 'chat' ? config.paths.chatDb : config.paths.searchDb;
+  const tableName = source === 'chat' ? 'chat_chunks' : 'chunks';
+
+  if (!existsSync(dbPath)) return res.json({ chunks: [], total: 0, source });
+
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath, { readonly: true });
+
+    const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tableName);
+    if (!hasTable) { db.close(); return res.json({ chunks: [], total: 0, source }); }
+
+    const total = db.prepare(`SELECT COUNT(*) as c FROM "${tableName}"`).get().c;
+
+    let rows;
+    if (source === 'chat') {
+      rows = db.prepare(`SELECT id, session_id, file, start_ts, end_ts, text FROM "${tableName}" ORDER BY id DESC LIMIT ? OFFSET ?`).all(limit, offset);
+    } else {
+      rows = db.prepare(`SELECT id, file, start_line, end_line, text FROM "${tableName}" ORDER BY id DESC LIMIT ? OFFSET ?`).all(limit, offset);
+    }
+
+    db.close();
+    res.json({ chunks: rows, total, source, offset, limit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/rag/config', (_req, res) => {
+  res.json({
+    chunkSize: config.embedding.chunkSize,
+    chunkOverlap: config.embedding.chunkOverlap,
+    dimension: config.embedding.dimension,
+    model: config.models.embed,
+    searchDb: config.paths.searchDb,
+    chatDb: config.paths.chatDb,
+  });
+});
+
+app.post('/api/rag/reindex', async (_req, res) => {
+  try {
+    const { indexDirectory } = require('../search/indexer');
+    const source = config.paths.memoryDir;
+    const dbPath = config.paths.searchDb;
+    indexDirectory(source, dbPath).catch(err => console.error('Reindex error:', err.message));
+    res.json({ status: 'started', source, db: dbPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Token Economics ---
+
+app.get('/api/economics', (_req, res) => {
+  try {
+    if (!existsSync(SESSION_DIR)) return res.json({ sessions: 0, models: {} });
+
+    const files = readdirSync(SESSION_DIR).filter(f => f.endsWith('.jsonl') && !f.includes('.deleted') && !f.includes('.lock'));
+
+    const modelStats = {};
+    let sessionCount = 0;
+
+    for (const file of files) {
+      sessionCount++;
+      const fp = path.join(SESSION_DIR, file);
+
+      // Use cached parse if available
+      const messages = parseSessionJsonl(file.replace('.jsonl', ''));
+      if (!messages) continue;
+
+      for (const msg of messages) {
+        if (!msg.usage || !msg.model) continue;
+        const model = msg.model;
+        if (!modelStats[model]) {
+          modelStats[model] = { inputTokens: 0, outputTokens: 0, messageCount: 0 };
+        }
+        modelStats[model].inputTokens += msg.usage.input || 0;
+        modelStats[model].outputTokens += msg.usage.output || 0;
+        modelStats[model].messageCount++;
+      }
+    }
+
+    // Cost estimates (per million tokens) — what it would cost at API rates
+    const COST_RATES = {
+      'claude-opus-4-5': { input: 15, output: 75 },
+      'claude-4-opus': { input: 15, output: 75 },
+      'claude-sonnet-4-5': { input: 3, output: 15 },
+      'claude-4-sonnet': { input: 3, output: 15 },
+      'claude-3-5-sonnet': { input: 3, output: 15 },
+      'claude-3-5-haiku': { input: 0.80, output: 4 },
+    };
+
+    let totalEstimatedCost = 0;
+    for (const [model, stats] of Object.entries(modelStats)) {
+      // Find matching cost rate by substring
+      let rate = null;
+      for (const [key, r] of Object.entries(COST_RATES)) {
+        if (model.includes(key)) { rate = r; break; }
+      }
+      if (rate) {
+        stats.estimatedCost = (stats.inputTokens / 1000000) * rate.input + (stats.outputTokens / 1000000) * rate.output;
+        totalEstimatedCost += stats.estimatedCost;
+      } else {
+        stats.estimatedCost = null;
+      }
+    }
+
+    res.json({
+      sessions: sessionCount,
+      models: modelStats,
+      totalEstimatedCost,
+      note: 'Estimated API cost if not using Max subscription. Actual cost: $0 (flat rate).',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- WebSocket auto-refresh ---
