@@ -329,7 +329,7 @@ function mapRouteToClawdbotModel(route) {
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
     'local_reasoning': null,  // Use Clawdbot default (Sonnet)
-    'local_qwen': null,        // Use Clawdbot default (Sonnet) with aggressive RAG trimming
+    'local_qwen': 'ollama/qwen2.5:14b',  // Route to local Ollama
     'wingman': 'anthropic/claude-sonnet-4-5',
   };
   return mapping[route] || null;
@@ -883,7 +883,7 @@ function mapRouteToClawdbotModel(route) {
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
     'local_reasoning': null,  // Use Clawdbot default (Sonnet)
-    'local_qwen': null,        // Use Clawdbot default (Sonnet) with aggressive RAG trimming
+    'local_qwen': 'ollama/qwen2.5:14b',  // Route to local Ollama
     'wingman': 'anthropic/claude-sonnet-4-5',
   };
   return mapping[route] || null;
