@@ -333,6 +333,7 @@ Real-time web monitoring dashboard. Express + WebSocket + vanilla JS.
 | GET | `/api/chat/sessions` | List JSONL session files |
 | GET | `/api/chat/:id/messages?offset=&limit=` | Paginated conversation history |
 | GET | `/api/chat/:id/messages/stream?last=` | Tail last N messages |
+| GET | `/api/diagnostics/export` | Comprehensive diagnostics export (JSON) |
 
 #### WebSocket
 
@@ -363,6 +364,7 @@ Broadcasts every 30s:
 - **Init:** `(async () => { await Promise.all([loadX(), loadY(), ...]); connectWs(); setInterval(...); })()`
 - **Refresh:** setInterval per panel (context 30s, agents 10s, status 60s), WebSocket for live updates
 - **Caching:** JSONL parser caches parsed messages by file mtime (`_chatCache` Map)
+- **Diagnostics Export:** Header button (`📥 Export Diagnostics`) downloads comprehensive JSON report including service status, loaded models, search stats, context pipeline config, package health, system info, recent activity, and token economics. Formatted filename: `localllm-diagnostics-YYYY-MM-DD-HH-MM.json`
 
 ---
 

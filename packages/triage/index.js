@@ -77,11 +77,21 @@ API tasks: complex analysis, research required, multi-step reasoning`;
   }
 }
 
-const VALID_ROUTES = ['gemini_3_pro', 'claude_opus', 'claude_sonnet', 'claude_haiku', 'local_qwen'];
+const VALID_ROUTES = ['claude_opus', 'claude_sonnet', 'local_qwen', 'local_reasoning', 'wingman'];
 const VALID_PRIORITIES = ['high', 'medium', 'low'];
 
-async function routeToModel(prompt) {
-  const systemPrompt = buildRouterPrompt(prompt);
+/**
+ * Route a user prompt to the optimal model based on task type.
+ * 
+ * @param {string} prompt - The current user message
+ * @param {Array} recentHistory - Last 2-3 messages for context (optional)
+ *   Format: [{ role: 'user', content: '...' }, { role: 'assistant', content: '...' }]
+ * @returns {Promise<{route: string, reason: string, priority: string}>}
+ */
+async function routeToModel(prompt, recentHistory = []) {
+  // Take only last 2 messages (1 user + 1 assistant turn) to keep token count low
+  const slicedHistory = recentHistory.slice(-2);
+  const systemPrompt = buildRouterPrompt(prompt, slicedHistory);
 
   try {
     const response = await generate(config.models.triage, systemPrompt, {

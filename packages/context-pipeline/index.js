@@ -190,7 +190,10 @@ async function assembleContext(message, sessionId, options = {}) {
   // 3. Routing decision
   if (pipelineConfig.routing?.enabled) {
     try {
-      result.routeDecision = await routeToModel(messageText);
+      // Pass last 2 messages from history for context (sliding window)
+      // This helps resolve ambiguous references like "Fix it", "Run that"
+      const recentHistory = result.shortTermHistory.slice(-2);
+      result.routeDecision = await routeToModel(messageText, recentHistory);
       logger.debug(`Route decision: ${result.routeDecision.route} (${result.routeDecision.reason})`);
     } catch (err) {
       logger.error(`Routing failed: ${err.message}`);

@@ -326,11 +326,11 @@ app.post('/api/pipelines/voice-memo', async (req, res) => {
 // Helper: map localllm route names to Clawdbot model strings
 function mapRouteToClawdbotModel(route) {
   const mapping = {
-    'gemini_3_pro': 'anthropic/claude-opus-4-5',  // TODO: Replace with Google AI SDK when available
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
-    'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
-    'local_qwen': 'anthropic/claude-sonnet-4-5',  // Fallback to Sonnet (local-only not available in Clawdbot)
+    'local_reasoning': null,  // Use Clawdbot default (Sonnet) - local reasoning stays local
+    'local_qwen': null,        // Use Clawdbot default (Sonnet) - local qwen stays local
+    'wingman': 'anthropic/claude-sonnet-4-5',
   };
   return mapping[route] || null;
 }
@@ -380,16 +380,47 @@ app.post('/api/context-pipeline/enrich', async (req, res) => {
       },
     };
 
-    // Log activity for dashboard
+    // Log activity for dashboard with enhanced routing details
     contextPipelineActivity.push({
       timestamp: new Date().toISOString(),
-      query: message.slice(0, 100),
-      ragCount: result.ragContext.length,
-      route: result.routeDecision?.route || null,
-      clawdbotModel: enrichment.routeSuggestion?.clawdbotModel || null,
-      priority: result.routeDecision?.priority || null,
-      reason: result.routeDecision?.reason || null,
-      timeMs: result.metadata.assemblyTime,
+      
+      // Full query details
+      query: {
+        fullText: message,
+        truncated: message.slice(0, 200), // First 200 chars for display
+        length: message.length
+      },
+      
+      // RAG context details
+      ragContext: {
+        count: result.ragContext.length,
+        sources: result.ragContext.map(r => ({
+          source: r.source,
+          score: r.score.toFixed(2),
+          snippet: r.text.slice(0, 100)
+        }))
+      },
+      
+      // Routing decision details
+      routeDecision: result.routeDecision ? {
+        route: result.routeDecision.route,
+        clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
+        priority: result.routeDecision.priority,
+        reason: result.routeDecision.reason,
+        
+        // Add conversation history used for routing
+        conversationHistory: result.shortTermHistory ? 
+          result.shortTermHistory.map(msg => ({
+            role: msg.role,
+            text: msg.content ? msg.content.slice(0, 100) : null
+          })) : null
+      } : null,
+      
+      // Execution metadata
+      metadata: {
+        assemblyTimeMs: result.metadata.assemblyTime,
+        sessionId: result.metadata.sessionId
+      }
     });
     if (contextPipelineActivity.length > MAX_ACTIVITY_LOG) {
       contextPipelineActivity.shift();
@@ -425,6 +456,34 @@ app.post('/api/context-pipeline/persist', async (req, res) => {
   } catch (err) {
     res.json({ status: 'error', error: err.message });
   }
+});
+
+// New endpoint to get detailed routing history
+app.get('/api/routing/history', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 500);
+  const offset = parseInt(req.query.offset) || 0;
+
+  const history = contextPipelineActivity
+    .slice(-limit - offset)  // Get last N + offset entries
+    .slice(0, limit)  // Take only limit entries
+    .map(entry => ({
+      timestamp: entry.timestamp,
+      query: entry.query.truncated,
+      fullQuery: entry.query.fullText,
+      route: entry.routeDecision?.route,
+      model: entry.routeDecision?.clawdbotModel,
+      priority: entry.routeDecision?.priority,
+      reason: entry.routeDecision?.reason,
+      ragContext: entry.ragContext?.sources,
+      conversationHistory: entry.routeDecision?.conversationHistory
+    }));
+
+  res.json({
+    total: contextPipelineActivity.length,
+    limit,
+    offset,
+    history
+  });
 });
 
 app.get('/api/context-pipeline/hook-status', (_req, res) => {
@@ -821,11 +880,11 @@ app.get('/api/config', (_req, res) => {
 // Helper: map localllm route names to Clawdbot model strings
 function mapRouteToClawdbotModel(route) {
   const mapping = {
-    'gemini_3_pro': 'anthropic/claude-opus-4-5',  // TODO: Replace with Google AI SDK when available (see Part 7)
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
-    'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
-    'local_qwen': 'anthropic/claude-sonnet-4-5',  // Fallback to Sonnet (local-only not available in Clawdbot)
+    'local_reasoning': null,  // Use Clawdbot default (Sonnet) - local reasoning stays local
+    'local_qwen': null,        // Use Clawdbot default (Sonnet) - local qwen stays local
+    'wingman': 'anthropic/claude-sonnet-4-5',
   };
   return mapping[route] || null;
 }
@@ -1031,7 +1090,13 @@ function parseSessionJsonl(sessionId) {
         role,
         text: null, thinking: null, toolCalls: [], toolResult: null,
         model: msg.model || null,
-        usage: msg.usage ? { input: msg.usage.inputTokens || msg.usage.input || 0, output: msg.usage.outputTokens || msg.usage.output || 0 } : null,
+        usage: msg.usage ? { 
+          input: msg.usage.inputTokens || msg.usage.input || 0, 
+          output: msg.usage.outputTokens || msg.usage.output || 0,
+          // Cache stats (support both Anthropic raw format and Clawdbot's transformed format)
+          cacheCreation: msg.usage.cache_creation_input_tokens || msg.usage.cacheWrite || 0,
+          cacheRead: msg.usage.cache_read_input_tokens || msg.usage.cacheRead || 0
+        } : null,
         stopReason: msg.stopReason || null,
       };
 
@@ -1193,6 +1258,64 @@ app.get('/api/context-monitor', async (_req, res) => {
   }
 
   res.json({ session: sessionStats, injectedFiles, injectedTotal, memory: memoryStats });
+});
+
+// --- Panel: Model Switcher (header widget) ---
+
+app.get('/api/models/switcher', async (_req, res) => {
+  // 1. Read current Clawdbot config for active model
+  let activeModel = null;
+  try {
+    const raw = readFileSync(CLAWDBOT_CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    activeModel = parsed.agents?.defaults?.model?.primary || null;
+  } catch {}
+
+  // 2. Hardcoded Anthropic models (known from Max subscription)
+  const anthropic = [
+    { id: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5', provider: 'anthropic', contextLimit: 200000, speed: 'slow', tier: 'S2' },
+    { id: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5', provider: 'anthropic', contextLimit: 200000, speed: 'fast', tier: 'A' },
+    { id: 'anthropic/claude-3-5-haiku-latest', label: 'Claude Haiku 3.5', provider: 'anthropic', contextLimit: 200000, speed: 'fastest', tier: 'B' },
+  ];
+
+  // 3. Fetch Ollama models (live)
+  let ollama = [];
+  try {
+    const data = await ollamaFetch('/api/tags');
+    ollama = (data.models || []).map(m => ({
+      id: `ollama/${m.name}`, label: m.name, provider: 'ollama',
+      size: m.size, family: m.details?.family,
+      contextLimit: 32000, speed: 'local', tier: 'C',
+    }));
+  } catch {}
+
+  // 4. Mark active
+  const all = [...anthropic, ...ollama].map(m => ({
+    ...m, active: m.id === activeModel,
+  }));
+
+  res.json({ models: all, activeModel });
+});
+
+app.post('/api/models/switch', (req, res) => {
+  const { modelId } = req.body;
+  if (!modelId) return res.status(400).json({ error: 'modelId required' });
+
+  try {
+    const raw = readFileSync(CLAWDBOT_CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed.agents) parsed.agents = {};
+    if (!parsed.agents.defaults) parsed.agents.defaults = {};
+    if (!parsed.agents.defaults.model) parsed.agents.defaults.model = {};
+
+    const previous = parsed.agents.defaults.model.primary;
+    parsed.agents.defaults.model.primary = modelId;
+
+    require('fs').writeFileSync(CLAWDBOT_CONFIG_PATH, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+    res.json({ status: 'switched', previous, current: modelId, note: 'Active for new sessions' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Panel: Model Manager ---
@@ -1737,6 +1860,184 @@ app.get('/api/alerts', async (_req, res) => {
   });
 
   res.json(alerts);
+});
+
+// --- Diagnostics Export ---
+
+app.get('/api/diagnostics/export', async (_req, res) => {
+  try {
+    // Gather comprehensive diagnostics data
+    const [
+      statusData,
+      modelsData,
+      searchStats,
+      pipelineConfig,
+      packagesData,
+      budgetData,
+      economicsData,
+    ] = await Promise.all([
+      // Service status (Ollama, whisper, databases)
+      (async () => {
+        const [ollama, memoryDb, chatDb] = await Promise.all([
+          ollamaFetch('/'),
+          Promise.resolve(getDbStats(config.paths.searchDb, 'memory.db')),
+          Promise.resolve(getDbStats(config.paths.chatDb, 'chat-memory.db')),
+        ]);
+        const whisperPath = findWhisper();
+        return {
+          ollama: { healthy: !ollama.error, detail: ollama },
+          whisper: { found: !!whisperPath, path: whisperPath },
+          databases: [memoryDb, chatDb],
+        };
+      })(),
+
+      // Loaded models
+      ollamaFetch('/api/tags').then(data => data.models || []),
+
+      // Search/RAG stats
+      (async () => {
+        const memoryDb = getDbStats(config.paths.searchDb, 'memory.db');
+        const chatDb = getDbStats(config.paths.chatDb, 'chat-memory.db');
+        return {
+          memoryDb,
+          chatDb,
+          config: {
+            chunkSize: config.embedding.chunkSize,
+            chunkOverlap: config.embedding.chunkOverlap,
+            dimension: config.embedding.dimension,
+            model: config.models.embed,
+          },
+        };
+      })(),
+
+      // Context pipeline config
+      (async () => {
+        try {
+          const fresh = config._reload();
+          return fresh.contextPipeline || config.contextPipeline;
+        } catch (err) {
+          return { error: err.message };
+        }
+      })(),
+
+      // Package health
+      Promise.resolve((() => {
+        const pkgs = ['embeddings', 'classifier', 'triage', 'search', 'transcriber', 'chat-ingest'];
+        return pkgs.map(name => {
+          const pkgDir = path.join(__dirname, '..', name);
+          const exists = existsSync(pkgDir);
+          let version = null;
+          let mainFile = null;
+          if (exists) {
+            try {
+              const pkg = require(path.join(pkgDir, 'package.json'));
+              version = pkg.version;
+              mainFile = pkg.main || 'index.js';
+            } catch { /* no package.json */ }
+          }
+          return { name, exists, version, mainFile };
+        });
+      })()),
+
+      // Model budget
+      (async () => {
+        const TOTAL_RAM = 36 * 1024 * 1024 * 1024; // 36GB
+        const OS_OVERHEAD = 9 * 1024 * 1024 * 1024; // ~9GB
+        const data = await ollamaFetch('/api/tags');
+        const models = data.models || [];
+        const psData = await ollamaFetch('/api/ps');
+        const loadedModels = psData.models || [];
+        const loadedNames = new Set(loadedModels.map(m => m.name));
+        const modelList = models.map(m => ({
+          name: m.name,
+          size: m.size || 0,
+          loaded: loadedNames.has(m.name),
+          family: m.details?.family || null,
+        }));
+        const loadedSize = modelList.filter(m => m.loaded).reduce((s, m) => s + m.size, 0);
+        const freeHeadroom = TOTAL_RAM - OS_OVERHEAD - loadedSize;
+        return {
+          totalRam: TOTAL_RAM,
+          osOverhead: OS_OVERHEAD,
+          loadedSize,
+          freeHeadroom: Math.max(0, freeHeadroom),
+          models: modelList,
+        };
+      })(),
+
+      // Token economics (if available)
+      (async () => {
+        try {
+          if (!existsSync(SESSION_DIR)) return { sessions: 0, models: {} };
+          const files = readdirSync(SESSION_DIR).filter(f => f.endsWith('.jsonl') && !f.includes('.deleted') && !f.includes('.lock'));
+          const modelStats = {};
+          let sessionCount = 0;
+          for (const file of files.slice(0, 20)) { // Sample first 20 sessions for speed
+            sessionCount++;
+            const messages = parseSessionJsonl(file.replace('.jsonl', ''));
+            if (!messages) continue;
+            for (const msg of messages) {
+              if (!msg.usage || !msg.model) continue;
+              const model = msg.model;
+              if (!modelStats[model]) {
+                modelStats[model] = { inputTokens: 0, outputTokens: 0, messageCount: 0 };
+              }
+              modelStats[model].inputTokens += msg.usage.input || 0;
+              modelStats[model].outputTokens += msg.usage.output || 0;
+              modelStats[model].messageCount++;
+            }
+          }
+          return { sessions: sessionCount, models: modelStats };
+        } catch (err) {
+          return { error: err.message };
+        }
+      })(),
+    ]);
+
+    // System info
+    const systemInfo = {
+      platform: os.platform(),
+      arch: os.arch(),
+      totalMem: os.totalmem(),
+      freeMem: os.freemem(),
+      cpus: os.cpus().length,
+      nodeVersion: process.version,
+      uptime: os.uptime(),
+    };
+
+    // Recent activity from context pipeline
+    const recentActivity = contextPipelineActivity.slice(-50);
+
+    // Build comprehensive report
+    const diagnostics = {
+      version: '1.0.0',
+      timestamp: new Date().toISOString(),
+      system: systemInfo,
+      services: statusData,
+      models: {
+        available: modelsData,
+        budget: budgetData,
+      },
+      search: searchStats,
+      contextPipeline: {
+        config: pipelineConfig,
+        recentActivity,
+      },
+      packages: packagesData,
+      economics: economicsData,
+      config: {
+        models: config.models,
+        thresholds: config.thresholds,
+        embedding: config.embedding,
+        paths: config.paths,
+        ollama: config.ollama,
+      },
+    };
+
+    res.json(diagnostics);
+  } catch (err) {
+    res.status(500).json({ error: err.message, timestamp: new Date().toISOString() });
+  }
 });
 
 // --- WebSocket auto-refresh ---

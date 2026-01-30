@@ -267,9 +267,55 @@
     font-size: 0.95em;
   }
 
+  /* Model Switcher (header dropdown) */
+  .model-switcher { position: relative; }
+  .model-switcher-btn {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 6px 12px; color: var(--text); font-size: 13px; cursor: pointer;
+    transition: border-color .15s;
+  }
+  .model-switcher-btn:hover { border-color: var(--accent); }
+  .model-switcher-btn .chevron { font-size: 10px; color: var(--text2); transition: transform .15s; }
+  .model-switcher-btn.open .chevron { transform: rotate(180deg); }
+  .model-switcher-dropdown {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+    min-width: 320px; max-height: 420px; overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 100;
+  }
+  .model-switcher-dropdown.open { display: block; }
+  .model-group-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--text2); padding: 10px 14px 4px; font-weight: 600;
+  }
+  .model-option {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    cursor: pointer; transition: background .1s; font-size: 13px;
+  }
+  .model-option:hover { background: var(--bg3); }
+  .model-option.active { background: rgba(88,166,255,.08); }
+  .model-option .mo-check { width: 16px; text-align: center; color: var(--green); font-weight: 700; }
+  .model-option .mo-name { flex: 1; font-weight: 500; }
+  .model-option .mo-badges { display: flex; gap: 4px; }
+  .model-confirm {
+    display: none; padding: 10px 14px; border-top: 1px solid var(--border);
+    background: var(--bg3); font-size: 13px;
+  }
+  .model-confirm.visible { display: flex; align-items: center; gap: 8px; }
+  .model-confirm .mc-label { flex: 1; color: var(--text2); }
+  .model-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #000; padding: 10px 20px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .3s;
+    z-index: 200; pointer-events: none;
+  }
+  .model-toast.show { opacity: 1; }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
+    .model-switcher-dropdown { min-width: 260px; right: -40px; }
   }
 </style>
 </head>
@@ -279,10 +325,29 @@
   <h1>🧠 <span>LocalLLM</span> Hub</h1>
   <span id="ollama-dot" class="status-dot warn" title="Checking..."></span>
   <span id="ollama-label" style="font-size:13px;color:var(--text2)">Checking Ollama...</span>
+  <div class="model-switcher" id="model-switcher" style="margin-left: auto;">
+    <button class="model-switcher-btn" id="model-switcher-btn" onclick="toggleModelSwitcher()">
+      <span class="status-dot ok" id="model-dot"></span>
+      <span id="model-active-label">Loading...</span>
+      <span class="chevron">▾</span>
+    </button>
+    <div class="model-switcher-dropdown" id="model-switcher-dropdown">
+      <div id="model-switcher-list"></div>
+      <div class="model-confirm" id="model-confirm">
+        <span class="mc-label" id="model-confirm-label"></span>
+        <button class="btn sm" onclick="confirmModelSwitch()">Switch</button>
+        <button class="btn sm outline" onclick="cancelModelSwitch()">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <button id="export-diagnostics-btn" class="btn sm" title="Export comprehensive diagnostics report">
+    📥 Export Diagnostics
+  </button>
   <div class="meta">
     <span id="last-update">—</span>
   </div>
 </header>
+<div class="model-toast" id="model-toast"></div>
 
 <main>
   <!-- Status Row -->
@@ -949,6 +1014,8 @@ async function doSearch() {
 }
 
 function escHtml(s) {
+  if (s == null || s === undefined) return '';
+  if (typeof s !== 'string') s = String(s);
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 }
 
@@ -2816,17 +2883,21 @@ async function loadContextPipeline() {
 
       for (const log of activity) {
         const time = new Date(log.timestamp).toLocaleTimeString();
-        const query = escHtml(log.query || '').replace(/^## Retrieved Context.*$/m, '').trim().slice(0, 60);
-        const ragCount = log.ragCount || 0;
-        const route = log.route || 'unknown';
-        const model = log.clawdbotModel ? log.clawdbotModel.split('/').pop() : '—';
-        const reason = escHtml(log.reason || '—');
-        const timeMs = log.timeMs || 0;
+        // Handle both old string format and new object format
+        const queryText = typeof log.query === 'string' ? log.query : (log.query?.truncated || log.query?.fullText || '');
+        const query = escHtml(queryText).replace(/^## Retrieved Context.*$/m, '').trim().slice(0, 60);
+        const fullQueryText = typeof log.query === 'string' ? log.query : (log.query?.fullText || '');
+        const ragCount = log.ragContext?.count || log.ragCount || 0;
+        const route = log.routeDecision?.route || log.route || 'unknown';
+        const fullModel = log.routeDecision?.clawdbotModel || log.clawdbotModel || '';
+        const model = fullModel ? fullModel.split('/').pop() : '—';
+        const reason = escHtml(log.routeDecision?.reason || log.reason || '—');
+        const timeMs = log.metadata?.assemblyTimeMs || log.timeMs || 0;
         const badge = routeBadgeColors[route] || { bg: 'var(--bg3)', fg: 'var(--text2)' };
 
         html += '<tr style="border-bottom:1px solid var(--bg3)">';
         html += '<td style="padding:6px 8px;color:var(--text2);white-space:nowrap">' + time + '</td>';
-        html += '<td style="padding:6px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(log.query || '') + '">' + (query || '<em>system</em>') + '</td>';
+        html += '<td style="padding:6px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(fullQueryText) + '">' + (query || '<em>system</em>') + '</td>';
         html += '<td style="padding:6px 8px;text-align:center">' + ragCount + '</td>';
         html += '<td style="padding:6px 8px;white-space:nowrap">';
         html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:' + badge.bg + ';color:' + badge.fg + '">' + escHtml(route) + '</span>';
@@ -2881,9 +2952,219 @@ async function toggleEnforceModel(enabled) {
 }
 
 // --- Init ---
+// --- Diagnostics Export ---
+async function exportDiagnostics() {
+  const btn = $('export-diagnostics-btn');
+  const originalText = btn.textContent;
+  try {
+    btn.textContent = '⏳ Exporting...';
+    btn.disabled = true;
+
+    const res = await fetch(API + '/api/diagnostics/export');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Create filename with timestamp
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 16).replace(/:/g, '-').replace('T', '-');
+    const filename = `localllm-diagnostics-${timestamp}.json`;
+
+    // Create blob and trigger download
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Success feedback
+    btn.textContent = '✅ Downloaded';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }, 2000);
+  } catch (e) {
+    btn.textContent = '❌ Export Failed';
+    console.error('Diagnostics export error:', e);
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }, 2000);
+  }
+}
+
+// --- Model Switcher ---
+
+let _pendingSwitchModelId = null;
+
+async function loadModelSwitcher() {
+  try {
+    const res = await fetch(API + '/api/models/switcher');
+    const data = await res.json();
+    const models = data.models || [];
+    const active = models.find(m => m.active);
+
+    // Update header button label
+    const label = $('model-active-label');
+    const dot = $('model-dot');
+    if (active) {
+      label.textContent = active.label;
+      dot.className = 'status-dot ok';
+    } else if (data.activeModel) {
+      label.textContent = data.activeModel;
+      dot.className = 'status-dot warn';
+    } else {
+      label.textContent = 'No model set';
+      dot.className = 'status-dot err';
+    }
+
+    // Build dropdown using DOM methods
+    const listEl = $('model-switcher-list');
+    listEl.textContent = '';  // Clear children
+
+    function addGroup(groupLabel, groupModels, tierConfig) {
+      if (!groupModels.length) return;
+      const lbl = document.createElement('div');
+      lbl.className = 'model-group-label';
+      lbl.textContent = groupLabel;
+      listEl.appendChild(lbl);
+
+      for (const m of groupModels) {
+        const opt = document.createElement('div');
+        opt.className = 'model-option' + (m.active ? ' active' : '');
+        opt.title = tierConfig.tooltip(m);
+        opt.addEventListener('click', () => selectModelToSwitch(m.id));
+
+        const check = document.createElement('span');
+        check.className = 'mo-check';
+        check.textContent = m.active ? '✓' : '';
+        opt.appendChild(check);
+
+        const name = document.createElement('span');
+        name.className = 'mo-name';
+        name.textContent = m.label;
+        opt.appendChild(name);
+
+        const badges = document.createElement('span');
+        badges.className = 'mo-badges';
+        for (const b of tierConfig.badges(m)) {
+          const badge = document.createElement('span');
+          badge.className = 'badge ' + b.cls;
+          badge.textContent = b.text;
+          badges.appendChild(badge);
+        }
+        opt.appendChild(badges);
+
+        listEl.appendChild(opt);
+      }
+    }
+
+    const anthropicModels = models.filter(m => m.provider === 'anthropic');
+    const ollamaModels = models.filter(m => m.provider === 'ollama');
+
+    addGroup('Anthropic (Max Subscription)', anthropicModels, {
+      tooltip: m => 'Context: ' + (m.contextLimit / 1000) + 'k tokens, Speed: ' + m.speed,
+      badges: m => {
+        const tierClass = m.tier === 'S2' ? 'purple' : m.tier === 'A' ? 'blue' : 'green';
+        return [
+          { cls: tierClass, text: m.tier },
+          { cls: 'blue', text: m.speed },
+        ];
+      },
+    });
+
+    addGroup('Local (Ollama)', ollamaModels, {
+      tooltip: m => 'Size: ' + (m.size ? (m.size / (1024 * 1024 * 1024)).toFixed(1) + 'GB' : 'unknown') + ', Family: ' + (m.family || 'unknown'),
+      badges: m => {
+        const b = [{ cls: 'orange', text: 'C' }];
+        if (m.size) b.push({ cls: 'yellow', text: (m.size / (1024 * 1024 * 1024)).toFixed(1) + 'GB' });
+        return b;
+      },
+    });
+  } catch (e) {
+    $('model-active-label').textContent = 'Error';
+    $('model-dot').className = 'status-dot err';
+  }
+}
+
+function toggleModelSwitcher() {
+  const btn = $('model-switcher-btn');
+  const dd = $('model-switcher-dropdown');
+  dd.classList.toggle('open');
+  btn.classList.toggle('open');
+  if (dd.classList.contains('open')) {
+    cancelModelSwitch();
+    loadModelSwitcher();
+  }
+}
+
+function selectModelToSwitch(modelId) {
+  _pendingSwitchModelId = modelId;
+  const shortName = modelId.split('/').pop();
+  $('model-confirm-label').textContent = 'Switch to ' + shortName + '?';
+  $('model-confirm').classList.add('visible');
+}
+
+async function confirmModelSwitch() {
+  if (!_pendingSwitchModelId) return;
+  const modelId = _pendingSwitchModelId;
+  _pendingSwitchModelId = null;
+  $('model-confirm').classList.remove('visible');
+
+  try {
+    const res = await fetch(API + '/api/models/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // Close dropdown and refresh
+    $('model-switcher-dropdown').classList.remove('open');
+    $('model-switcher-btn').classList.remove('open');
+    await loadModelSwitcher();
+
+    // Show toast
+    const shortName = modelId.split('/').pop();
+    showModelToast('Switched to ' + shortName);
+  } catch (e) {
+    showModelToast('Switch failed: ' + e.message);
+  }
+}
+
+function cancelModelSwitch() {
+  _pendingSwitchModelId = null;
+  $('model-confirm').classList.remove('visible');
+}
+
+function showModelToast(msg) {
+  const toast = $('model-toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// Close model switcher on outside click
+document.addEventListener('click', (e) => {
+  const switcher = $('model-switcher');
+  if (switcher && !switcher.contains(e.target)) {
+    $('model-switcher-dropdown').classList.remove('open');
+    $('model-switcher-btn').classList.remove('open');
+    cancelModelSwitch();
+  }
+});
+
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher()]);
   connectWs();
+
+  // Set up export diagnostics button
+  $('export-diagnostics-btn').addEventListener('click', exportDiagnostics);
+
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
   // Refresh agent list every 10s
@@ -2894,6 +3175,8 @@ async function toggleEnforceModel(enabled) {
   setInterval(() => { loadStatus(); loadJobs(); loadPipelines(); loadDaemons(); loadAlerts(); }, 60000);
   // Refresh model manager and budget every 30s
   setInterval(() => { loadModelManager(); loadBudget(); }, 30000);
+  // Refresh model switcher every 30s
+  setInterval(loadModelSwitcher, 30000);
   // Refresh economics every 120s
   setInterval(loadEconomics, 120000);
 })();

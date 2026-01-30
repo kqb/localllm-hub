@@ -27,7 +27,7 @@
     },
     "routing": {
       "enabled": true,
-      "model": "qwen2.5:7b",
+      "model": "qwen2.5:14b",
       "fallback": "claude_sonnet",
       "enforceModel": true
     },

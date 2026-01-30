@@ -6,9 +6,9 @@ const OVERRIDES_PATH = join(__dirname, '..', 'config.local.json');
 
 const defaults = {
   models: {
-    triage: 'qwen2.5:7b',
+    triage: 'qwen2.5:14b',           // UPGRADED: 14B for better routing accuracy
     code: 'qwen2.5-coder:14b',
-    reasoning: 'deepseek-r1:14b',
+    reasoning: 'deepseek-r1:14b',    // LOCAL reasoning (logic/math)
     embed: 'mxbai-embed-large',      // 1024-dim
     embedFast: 'nomic-embed-text',   // 768-dim
   },
@@ -53,7 +53,7 @@ const defaults = {
     },
     routing: {
       enabled: true,
-      model: 'qwen2.5:7b',
+      model: 'qwen2.5:14b',          // UPGRADED: 14B for better classification
       fallback: 'claude_sonnet',
       enforceModel: false,
       overrides: {},
