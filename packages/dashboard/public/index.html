@@ -227,6 +227,30 @@
   .alert-title { font-weight: 600; font-size: 14px; }
   .alert-detail { font-size: 13px; color: var(--text2); margin-left: auto; }
 
+  /* Router Editor */
+  .router-editor { display: flex; flex-direction: column; gap: 12px; }
+  .router-editor textarea { width: 100%; min-height: 400px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text); font-family: 'Monaco', 'Menlo', monospace; font-size: 12px; line-height: 1.5; resize: vertical; }
+  .router-editor textarea:focus { outline: none; border-color: var(--accent); }
+  .router-actions { display: flex; gap: 8px; align-items: center; }
+  .router-test-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .router-test-row input { flex: 1; }
+  .router-result { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 8px; }
+  .router-result pre { margin: 0; font-family: monospace; font-size: 12px; white-space: pre-wrap; color: var(--text); }
+  .router-result .route-name { color: var(--green); font-weight: 700; }
+  .router-result .priority { color: var(--yellow); }
+
+  /* Compaction Settings */
+  .compaction-form { display: flex; flex-direction: column; gap: 16px; }
+  .compaction-form .form-row { display: flex; flex-direction: column; gap: 4px; }
+  .compaction-form label { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+  .compaction-form input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; color: var(--text); font-size: 14px; }
+  .compaction-form input[type=number]:focus { outline: none; border-color: var(--accent); }
+  .compaction-form textarea { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; color: var(--text); font-family: monospace; font-size: 12px; line-height: 1.5; min-height: 120px; resize: vertical; }
+  .compaction-form textarea:focus { outline: none; border-color: var(--accent); }
+  .compaction-form .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+  .compaction-form .toggle-wrap input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .compaction-actions { display: flex; gap: 8px; align-items: center; }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
@@ -410,6 +434,22 @@
   <section class="card" id="alerts-card">
     <h2>🚨 Alerts</h2>
     <div id="alerts-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Router Prompt Editor -->
+  <section class="card" id="router-card">
+    <h2>🧭 Router Prompt Editor</h2>
+    <div id="router-content">
+      <div class="loading-text"><span class="spinner"></span> Loading...</div>
+    </div>
+  </section>
+
+  <!-- Compaction Settings -->
+  <section class="card" id="compaction-card">
+    <h2>💾 Compaction Settings</h2>
+    <div id="compaction-content">
+      <div class="loading-text"><span class="spinner"></span> Loading...</div>
+    </div>
   </section>
 </main>
 
@@ -2285,9 +2325,150 @@ async function loadAlerts() {
   }
 }
 
+async function loadRouter() {
+  try {
+    const res = await fetch('/api/router/prompt');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const cont = $('router-content');
+    let html = '<div class="router-editor">';
+    html += '<textarea id="router-prompt-text">' + escHtml(data.content) + '</textarea>';
+    html += '<div class="router-actions">';
+    html += '<button class="btn" onclick="saveRouterPrompt()">💾 Save Prompt</button>';
+    html += '<span id="router-save-status"></span>';
+    html += '</div>';
+    html += '<div class="router-test-row">';
+    html += '<input type="text" id="router-test-input" placeholder="Enter a test query...">';
+    html += '<button class="btn outline" onclick="testRouter()">🧪 Test Router</button>';
+    html += '</div>';
+    html += '<div id="router-test-result"></div>';
+    html += '</div>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    cont.innerHTML = html;
+  } catch (err) {
+    $('router-content').innerHTML = '<div class="empty">❌ ' + escHtml(err.message) + '</div>';
+  }
+}
+
+async function saveRouterPrompt() {
+  const content = $('router-prompt-text').value;
+  const status = $('router-save-status');
+  try {
+    status.innerHTML = '<span class="loading-text"><span class="spinner"></span> Saving...</span>';
+    const res = await fetch('/api/router/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    status.innerHTML = '<span class="badge green">✓ Saved</span>';
+    setTimeout(() => { status.innerHTML = ''; }, 3000);
+  } catch (err) {
+    status.innerHTML = '<span class="badge red">❌ ' + escHtml(err.message) + '</span>';
+  }
+}
+
+async function testRouter() {
+  const query = $('router-test-input').value.trim();
+  if (!query) return;
+
+  const resultDiv = $('router-test-result');
+  resultDiv.innerHTML = '<div class="loading-text"><span class="spinner"></span> Routing...</div>';
+
+  try {
+    const res = await fetch('/api/router/test?query=' + encodeURIComponent(query));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const { result } = data;
+    let html = '<div class="router-result"><pre>';
+    html += '<span class="route-name">Route:</span> ' + escHtml(result.route) + '\n';
+    html += '<span class="priority">Priority:</span> ' + escHtml(result.priority) + '\n';
+    html += '<strong>Reason:</strong> ' + escHtml(result.reason);
+    html += '</pre></div>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    resultDiv.innerHTML = html;
+  } catch (err) {
+    resultDiv.innerHTML = '<div class="router-result"><pre>❌ ' + escHtml(err.message) + '</pre></div>';
+  }
+}
+
+async function loadCompaction() {
+  try {
+    const res = await fetch('/api/compaction');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const { compaction } = data;
+    const cont = $('compaction-content');
+
+    let html = '<div class="compaction-form">';
+    html += '<div class="form-row">';
+    html += '<label>Reserve Tokens Floor</label>';
+    html += '<input type="number" id="compact-reserve-floor" value="' + (compaction.reserveTokensFloor || 10000) + '" min="1000" max="50000" step="1000">';
+    html += '<span style="font-size: 11px; color: var(--text2);">Minimum tokens always kept free</span>';
+    html += '</div>';
+    html += '<div class="form-row">';
+    html += '<label>Soft Threshold (Tokens)</label>';
+    html += '<input type="number" id="compact-soft-threshold" value="' + (compaction.memoryFlush?.softThresholdTokens || 180000) + '" min="100000" max="200000" step="5000">';
+    html += '<span style="font-size: 11px; color: var(--text2);">Trigger flush when context reaches this size</span>';
+    html += '</div>';
+    html += '<div class="form-row">';
+    html += '<label>Memory Flush Enabled</label>';
+    html += '<div class="toggle-wrap">';
+    html += '<input type="checkbox" id="compact-flush-enabled" ' + (compaction.memoryFlush?.enabled !== false ? 'checked' : '') + '>';
+    html += '<span style="font-size: 13px; color: var(--text2);">Enable automatic memory flush</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="form-row">';
+    html += '<label>Flush Prompt</label>';
+    html += '<textarea id="compact-flush-prompt">' + escHtml(compaction.memoryFlush?.prompt || '') + '</textarea>';
+    html += '<span style="font-size: 11px; color: var(--text2);">Instruction sent to agent when triggering flush</span>';
+    html += '</div>';
+    html += '<div class="compaction-actions">';
+    html += '<button class="btn" onclick="saveCompaction()">💾 Save Settings</button>';
+    html += '<span id="compaction-save-status"></span>';
+    html += '</div>';
+    html += '</div>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    cont.innerHTML = html;
+  } catch (err) {
+    $('compaction-content').innerHTML = '<div class="empty">❌ ' + escHtml(err.message) + '</div>';
+  }
+}
+
+async function saveCompaction() {
+  const compaction = {
+    reserveTokensFloor: parseInt($('compact-reserve-floor').value),
+    memoryFlush: {
+      enabled: $('compact-flush-enabled').checked,
+      softThresholdTokens: parseInt($('compact-soft-threshold').value),
+      prompt: $('compact-flush-prompt').value,
+    },
+  };
+
+  const status = $('compaction-save-status');
+  try {
+    status.innerHTML = '<span class="loading-text"><span class="spinner"></span> Saving...</span>';
+    const res = await fetch('/api/compaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compaction }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    status.innerHTML = '<span class="badge green">✓ Saved (backup created)</span>';
+    setTimeout(() => { status.innerHTML = ''; }, 4000);
+  } catch (err) {
+    status.innerHTML = '<span class="badge red">❌ ' + escHtml(err.message) + '</span>';
+  }
+}
+
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);

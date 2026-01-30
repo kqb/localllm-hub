@@ -105,6 +105,90 @@ app.post('/api/reindex', async (_req, res) => {
   }
 });
 
+app.get('/api/router/prompt', (_req, res) => {
+  try {
+    const promptPath = path.join(__dirname, '../../shared/router-prompt.js');
+    const content = readFileSync(promptPath, 'utf-8');
+    res.json({ content, path: promptPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/router/prompt', async (req, res) => {
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Missing content' });
+  try {
+    const { writeFileSync } = require('fs');
+    const promptPath = path.join(__dirname, '../../shared/router-prompt.js');
+    writeFileSync(promptPath, content, 'utf-8');
+    // Invalidate Node.js require cache so next load gets new content
+    delete require.cache[require.resolve('../../shared/router-prompt')];
+    res.json({ success: true, path: promptPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/router/test', async (req, res) => {
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ error: 'Missing query parameter' });
+  try {
+    const { routeToModel } = require('../triage');
+    const result = await routeToModel(query);
+    res.json({ query, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/compaction', (_req, res) => {
+  try {
+    const clawdbotConfigPath = path.join(os.homedir(), '.clawdbot/clawdbot.json');
+    if (!existsSync(clawdbotConfigPath)) {
+      return res.status(404).json({ error: 'clawdbot.json not found' });
+    }
+    const configData = JSON.parse(readFileSync(clawdbotConfigPath, 'utf-8'));
+    const compaction = configData.agents?.defaults?.compaction || {};
+    res.json({ compaction, path: clawdbotConfigPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/compaction', async (req, res) => {
+  const { compaction } = req.body;
+  if (!compaction) return res.status(400).json({ error: 'Missing compaction object' });
+
+  try {
+    const { writeFileSync } = require('fs');
+    const clawdbotConfigPath = path.join(os.homedir(), '.clawdbot/clawdbot.json');
+
+    if (!existsSync(clawdbotConfigPath)) {
+      return res.status(404).json({ error: 'clawdbot.json not found' });
+    }
+
+    // Read existing config
+    const configData = JSON.parse(readFileSync(clawdbotConfigPath, 'utf-8'));
+
+    // Create backup
+    const backupPath = clawdbotConfigPath + '.bak';
+    writeFileSync(backupPath, JSON.stringify(configData, null, 2), 'utf-8');
+
+    // Update compaction settings
+    if (!configData.agents) configData.agents = {};
+    if (!configData.agents.defaults) configData.agents.defaults = {};
+    configData.agents.defaults.compaction = compaction;
+
+    // Write updated config
+    writeFileSync(clawdbotConfigPath, JSON.stringify(configData, null, 2), 'utf-8');
+
+    res.json({ success: true, backup: backupPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/packages', (_req, res) => {
   const pkgs = ['embeddings', 'classifier', 'triage', 'search', 'transcriber', 'chat-ingest'];
   const results = pkgs.map(name => {
