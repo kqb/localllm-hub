@@ -179,6 +179,54 @@
   .rag-chunk .rag-text { font-size: 13px; color: var(--text); max-height: 60px; overflow: hidden; cursor: pointer; white-space: pre-wrap; }
   .rag-chunk .rag-text.expanded { max-height: none; }
 
+  /* Prompt Editor */
+  .pe-select { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; color: var(--text); font-size: 14px; min-width: 200px; }
+  .pe-textarea { width: 100%; min-height: 400px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text); font-family: 'SF Mono', 'Menlo', 'Monaco', monospace; font-size: 13px; line-height: 1.5; resize: vertical; outline: none; margin-top: 8px; }
+  .pe-textarea:focus { border-color: var(--accent); }
+  .pe-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .pe-stats { font-size: 12px; color: var(--text2); flex: 1; }
+
+  /* Skills grid */
+  .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .skill-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; transition: border-color .15s; }
+  .skill-card:hover { border-color: var(--accent); }
+  .skill-card .skill-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .skill-card .skill-name { font-weight: 600; font-size: 14px; }
+  .skill-card .skill-desc { font-size: 13px; color: var(--text2); line-height: 1.4; }
+  .skill-detail { background: #1a1a2e; padding: 12px; border-radius: 4px; font-size: 13px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; margin-top: 8px; display: none; }
+
+  /* Corrections */
+  .correction-item { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; cursor: pointer; transition: border-color .15s; margin-bottom: 6px; }
+  .correction-item:hover { border-color: var(--accent); }
+  .correction-item .corr-header { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .correction-item .corr-name { font-weight: 600; flex: 1; }
+  .correction-item .corr-body { font-size: 13px; color: var(--text2); white-space: pre-wrap; margin-top: 8px; max-height: 300px; overflow-y: auto; display: none; }
+
+  /* Session Manager table */
+  .sess-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sess-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .sess-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .sess-table tr:last-child td { border-bottom: none; }
+  .sess-table .sess-id { font-family: monospace; font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sess-table .clickable { cursor: pointer; color: var(--accent); }
+  .sess-table .clickable:hover { text-decoration: underline; }
+
+  /* Cron table */
+  .cron-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .cron-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .cron-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .cron-table tr:last-child td { border-bottom: none; }
+
+  /* Alerts */
+  .alert-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .alert-dot.green { background: var(--green); }
+  .alert-dot.yellow { background: var(--yellow); }
+  .alert-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .alert-title { font-weight: 600; font-size: 14px; }
+  .alert-detail { font-size: 13px; color: var(--text2); margin-left: auto; }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
@@ -326,6 +374,42 @@
   <section class="card" id="economics-card">
     <h2>💰 Token Economics</h2>
     <div id="economics-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Prompt Editor -->
+  <section class="card" id="prompt-editor-card">
+    <h2>📝 Prompt Editor</h2>
+    <div id="prompt-editor-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Skills Manager -->
+  <section class="card" id="skills-card">
+    <h2>🧩 Skills Manager</h2>
+    <div id="skills-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Corrections Viewer -->
+  <section class="card" id="corrections-card">
+    <h2>🔧 Corrections Viewer</h2>
+    <div id="corrections-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Session Manager -->
+  <section class="card" id="sessions-card">
+    <h2>📂 Session Manager</h2>
+    <div id="sessions-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Cron Manager -->
+  <section class="card" id="cron-card">
+    <h2>⏰ Cron Manager</h2>
+    <div id="cron-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Alerts -->
+  <section class="card" id="alerts-card">
+    <h2>🚨 Alerts</h2>
+    <div id="alerts-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 </main>
 
@@ -1905,16 +1989,312 @@ function connectWs() {
   ws.onerror = () => ws.close();
 }
 
+// --- Prompt Editor ---
+// Safety: This is a localhost-only admin dashboard. All user-controlled text
+// is passed through escHtml() before innerHTML insertion. No external/untrusted
+// content is rendered. See CLAUDE.md "Dashboard security hook" for rationale.
+let _peCurrentFile = null;
+
+async function loadPromptEditor() {
+  try {
+    const res = await fetch(API + '/api/workspace/files');
+    const files = await res.json();
+    let html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">';
+    html += '<select class="pe-select" id="pe-file-select" onchange="loadWorkspaceFile(this.value)">';
+    html += '<option value="">Select a file...</option>';
+    for (const f of files) {
+      const sizeKB = (f.sizeBytes / 1024).toFixed(1);
+      const status = f.exists ? sizeKB + ' KB' : 'missing';
+      html += '<option value="' + escHtml(f.name) + '"' + (f.exists ? '' : ' disabled') + '>' + escHtml(f.name) + ' (' + status + ')</option>';
+    }
+    html += '</select>';
+    html += '<span id="pe-file-info" style="font-size:12px;color:var(--text2)"></span>';
+    html += '</div>';
+    html += '<textarea class="pe-textarea" id="pe-editor" placeholder="Select a file to edit..." disabled></textarea>';
+    html += '<div class="pe-bar">';
+    html += '<span class="pe-stats" id="pe-stats"></span>';
+    html += '<button class="btn" id="pe-save-btn" onclick="saveWorkspaceFile()" disabled>Save</button>';
+    html += '</div>';
+    // Safety: all dynamic values above are escaped via escHtml(); localhost-only admin tool
+    $('prompt-editor-content').innerHTML = html;
+
+    const editor = $('pe-editor');
+    editor.addEventListener('input', () => {
+      const chars = editor.value.length;
+      const estTokens = Math.round(chars / 4);
+      $('pe-stats').textContent = chars.toLocaleString() + ' chars · ~' + estTokens.toLocaleString() + ' tokens';
+    });
+  } catch (e) {
+    $('prompt-editor-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function loadWorkspaceFile(name) {
+  if (!name) return;
+  const editor = $('pe-editor');
+  const info = $('pe-file-info');
+  editor.value = 'Loading...';
+  editor.disabled = true;
+  try {
+    const res = await fetch(API + '/api/workspace/file?path=' + encodeURIComponent(name));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    _peCurrentFile = name;
+    editor.value = data.content;
+    editor.disabled = false;
+    $('pe-save-btn').disabled = false;
+    info.textContent = 'Last modified: ' + new Date(data.modified).toLocaleString();
+    editor.dispatchEvent(new Event('input'));
+  } catch (e) {
+    editor.value = 'Error loading file: ' + e.message;
+    info.textContent = '';
+  }
+}
+
+async function saveWorkspaceFile() {
+  if (!_peCurrentFile) return;
+  const editor = $('pe-editor');
+  const btn = $('pe-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const res = await fetch(API + '/api/workspace/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: _peCurrentFile, content: editor.value }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    btn.textContent = 'Saved!';
+    $('pe-file-info').textContent = 'Saved · ' + (data.sizeBytes / 1024).toFixed(1) + ' KB';
+    setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+  } catch (e) {
+    btn.textContent = 'Error!';
+    $('pe-file-info').textContent = 'Save failed: ' + e.message;
+    setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+  }
+}
+
+// --- Skills Manager ---
+async function loadSkills() {
+  try {
+    const res = await fetch(API + '/api/skills');
+    const skills = await res.json();
+    if (!skills.length) { $('skills-content').textContent = 'No skills found'; return; }
+
+    const customCount = skills.filter(s => s.type === 'custom').length;
+    const builtinCount = skills.filter(s => s.type === 'built-in').length;
+    let html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text2)">' + skills.length + ' skills (' + customCount + ' custom, ' + builtinCount + ' built-in)</div>';
+    html += '<div class="skills-grid">';
+    for (const skill of skills) {
+      const badgeClass = skill.type === 'custom' ? 'purple' : 'blue';
+      html += '<div class="skill-card" onclick="toggleSkillDetail(this, \'' + escHtml(skill.name) + '\')">';
+      html += '<div class="skill-header"><span class="skill-name">' + escHtml(skill.name) + '</span><span class="badge ' + badgeClass + '">' + escHtml(skill.type) + '</span></div>';
+      html += '<div class="skill-desc">' + (skill.description ? escHtml(skill.description) : '<em style="color:var(--text2)">No description</em>') + '</div>';
+      if (skill.hasSkillMd) html += '<div class="skill-detail" id="skill-detail-' + escHtml(skill.name) + '"></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('skills-content').innerHTML = html;
+  } catch (e) {
+    $('skills-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function toggleSkillDetail(card, name) {
+  const detail = card.querySelector('.skill-detail');
+  if (!detail) return;
+  if (detail.style.display === 'block') { detail.style.display = 'none'; return; }
+  if (!detail.textContent) {
+    detail.textContent = 'Loading...';
+    detail.style.display = 'block';
+    try {
+      const res = await fetch(API + '/api/skills/' + encodeURIComponent(name));
+      const data = await res.json();
+      detail.textContent = data.content || 'Empty';
+    } catch (e) {
+      detail.textContent = 'Error: ' + e.message;
+    }
+  } else {
+    detail.style.display = 'block';
+  }
+}
+
+// --- Corrections Viewer ---
+async function loadCorrections() {
+  try {
+    const res = await fetch(API + '/api/corrections');
+    const corrections = await res.json();
+    if (!corrections.length) { $('corrections-content').textContent = 'No corrections found'; return; }
+
+    const dateCounts = {};
+    for (const c of corrections) {
+      const dateMatch = c.name.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) { dateCounts[dateMatch[1]] = (dateCounts[dateMatch[1]] || 0) + 1; }
+    }
+
+    let html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text2)">' + corrections.length + ' correction files</div>';
+    for (const c of corrections) {
+      const dateMatch = c.name.match(/^(\d{4}-\d{2}-\d{2})/);
+      const dateStr = dateMatch ? dateMatch[1] : '';
+      const count = dateCounts[dateStr] || 0;
+      html += '<div class="correction-item" onclick="toggleCorrection(this, \'' + escHtml(c.name) + '\')">';
+      html += '<div class="corr-header">';
+      html += '<span class="corr-name">' + escHtml(c.name) + '</span>';
+      if (count > 1) html += '<span class="badge yellow">' + count + '/day</span>';
+      html += '<span style="font-size:12px;color:var(--text2)">' + (c.sizeBytes / 1024).toFixed(1) + ' KB</span>';
+      html += '</div>';
+      html += '<div class="corr-body" id="corr-' + escHtml(c.name) + '"></div>';
+      html += '</div>';
+    }
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('corrections-content').innerHTML = html;
+  } catch (e) {
+    $('corrections-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function toggleCorrection(el, name) {
+  const body = el.querySelector('.corr-body');
+  if (!body) return;
+  if (body.style.display === 'block') { body.style.display = 'none'; return; }
+  if (!body.textContent) {
+    body.textContent = 'Loading...';
+    body.style.display = 'block';
+    try {
+      const res = await fetch(API + '/api/corrections/' + encodeURIComponent(name));
+      const data = await res.json();
+      body.textContent = data.content || 'Empty';
+    } catch (e) {
+      body.textContent = 'Error: ' + e.message;
+    }
+  } else {
+    body.style.display = 'block';
+  }
+}
+
+// --- Session Manager ---
+async function loadSessionManager() {
+  try {
+    const res = await fetch(API + '/api/sessions/list');
+    const sessions = await res.json();
+    if (!sessions.length) { $('sessions-content').textContent = 'No sessions found'; return; }
+
+    let html = '<div style="margin-bottom:8px;font-size:13px;color:var(--text2)">' + sessions.length + ' sessions</div>';
+    html += '<div style="max-height:400px;overflow-y:auto">';
+    html += '<table class="sess-table"><thead><tr><th>Session ID</th><th>Size</th><th>Est. Messages</th><th>Last Modified</th></tr></thead><tbody>';
+    for (const s of sessions) {
+      const sizeMB = (s.sizeBytes / (1024 * 1024)).toFixed(2);
+      const shortId = s.sessionId.length > 20 ? s.sessionId.slice(0, 8) + '...' + s.sessionId.slice(-8) : s.sessionId;
+      const modified = new Date(s.lastModified).toLocaleString();
+      html += '<tr><td class="sess-id"><span class="clickable" title="' + escHtml(s.sessionId) + '" onclick="openSessionInChat(\'' + escHtml(s.sessionId) + '\')">' + escHtml(shortId) + '</span></td>';
+      html += '<td>' + sizeMB + ' MB</td>';
+      html += '<td>' + s.estimatedMessages.toLocaleString() + '</td>';
+      html += '<td>' + escHtml(modified) + '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('sessions-content').innerHTML = html;
+  } catch (e) {
+    $('sessions-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+function openSessionInChat(sessionId) {
+  const chatCard = $('chat-card');
+  if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth' });
+  const sel = $('chat-session-select');
+  if (sel) {
+    sel.value = sessionId;
+    sel.dispatchEvent(new Event('change'));
+  }
+}
+
+// --- Cron Manager ---
+async function loadCron() {
+  try {
+    const res = await fetch(API + '/api/cron/list');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const jobs = Array.isArray(data) ? data : [];
+    if (!jobs.length) {
+      $('cron-content').textContent = 'No cron jobs found';
+      return;
+    }
+
+    let html = '<table class="cron-table"><thead><tr><th>ID</th><th>Schedule</th><th>Text</th><th>Enabled</th><th>Action</th></tr></thead><tbody>';
+    for (const job of jobs) {
+      const id = job.id || job.name || '?';
+      const schedule = job.schedule || job.cron || job.interval || '\u2014';
+      const text = job.text || job.command || job.description || '\u2014';
+      const enabled = job.enabled !== false;
+      html += '<tr>';
+      html += '<td style="font-family:monospace;font-size:12px">' + escHtml(String(id)) + '</td>';
+      html += '<td><code style="font-size:12px">' + escHtml(String(schedule)) + '</code></td>';
+      html += '<td>' + escHtml(String(text).slice(0, 100)) + '</td>';
+      html += '<td><span class="badge ' + (enabled ? 'green' : 'red') + '">' + (enabled ? 'yes' : 'no') + '</span></td>';
+      html += '<td><button class="btn sm" onclick="runCronJob(\'' + escHtml(String(id)) + '\')">Run</button></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('cron-content').innerHTML = html;
+  } catch (e) {
+    $('cron-content').textContent = 'Clawdbot CLI not available or no cron jobs configured';
+  }
+}
+
+async function runCronJob(id) {
+  try {
+    const res = await fetch(API + '/api/cron/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    alert('Cron job triggered: ' + (data.output || 'OK'));
+  } catch (e) {
+    alert('Failed to run cron job: ' + e.message);
+  }
+}
+
+// --- Alerts ---
+async function loadAlerts() {
+  try {
+    const res = await fetch(API + '/api/alerts');
+    const alerts = await res.json();
+    if (!alerts.length) { $('alerts-content').textContent = 'No alerts'; return; }
+
+    const order = { red: 0, yellow: 1, green: 2 };
+    alerts.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+
+    let html = '';
+    for (const a of alerts) {
+      html += '<div class="alert-item">';
+      html += '<span class="alert-dot ' + escHtml(a.severity) + '"></span>';
+      html += '<span class="alert-title">' + escHtml(a.title) + '</span>';
+      html += '<span class="alert-detail">' + escHtml(a.detail) + '</span>';
+      html += '</div>';
+    }
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('alerts-content').innerHTML = html;
+  } catch (e) {
+    $('alerts-content').textContent = 'Error: ' + e.message;
+  }
+}
+
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
   // Refresh agent list every 10s
   setInterval(loadAgents, 10000);
   // Refresh full status every 60s
-  setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); }, 60000);
+  setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); loadAlerts(); }, 60000);
   // Refresh model manager and budget every 30s
   setInterval(() => { loadModelManager(); loadBudget(); }, 30000);
   // Refresh economics every 120s

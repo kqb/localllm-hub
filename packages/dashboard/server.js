@@ -1022,6 +1022,283 @@ app.get('/api/economics', (_req, res) => {
   }
 });
 
+// --- Panel: Prompt Editor (Workspace Files) ---
+
+const WORKSPACE_DIR = path.join(os.homedir(), 'clawd');
+const WORKSPACE_FILES = ['AGENTS.md', 'SOUL.md', 'USER.md', 'HEARTBEAT.md', 'IDENTITY.md', 'TOOLS.md', 'MEMORY.md'];
+
+function isValidWorkspaceFile(name) {
+  // Reject path traversal and only allow known files
+  if (name.includes('..') || name.includes('/') || name.includes('\\')) return false;
+  return WORKSPACE_FILES.includes(name);
+}
+
+app.get('/api/workspace/files', (_req, res) => {
+  const files = WORKSPACE_FILES.map(name => {
+    const fp = path.join(WORKSPACE_DIR, name);
+    try {
+      const st = statSync(fp);
+      return { name, sizeBytes: st.size, modified: st.mtime.toISOString(), exists: true };
+    } catch {
+      return { name, sizeBytes: 0, modified: null, exists: false };
+    }
+  });
+  res.json(files);
+});
+
+app.get('/api/workspace/file', (req, res) => {
+  const name = req.query.path;
+  if (!name || !isValidWorkspaceFile(name)) return res.status(400).json({ error: 'Invalid file path' });
+  const fp = path.join(WORKSPACE_DIR, name);
+  try {
+    const content = require('fs').readFileSync(fp, 'utf-8');
+    const st = statSync(fp);
+    res.json({ name, content, sizeBytes: st.size, modified: st.mtime.toISOString() });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.post('/api/workspace/file', (req, res) => {
+  const { name, content } = req.body;
+  if (!name || !isValidWorkspaceFile(name)) return res.status(400).json({ error: 'Invalid file path' });
+  if (typeof content !== 'string') return res.status(400).json({ error: 'Missing content' });
+  const fp = path.join(WORKSPACE_DIR, name);
+  try {
+    require('fs').writeFileSync(fp, content, 'utf-8');
+    const st = statSync(fp);
+    res.json({ status: 'saved', name, sizeBytes: st.size });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Skills Manager ---
+
+const SKILLS_DIRS = [
+  { dir: path.join(os.homedir(), 'clawd', 'skills'), type: 'custom' },
+  { dir: '/opt/homebrew/lib/node_modules/clawdbot/skills', type: 'built-in' },
+];
+
+function parseSkillFrontmatter(content) {
+  // Extract YAML frontmatter between --- markers
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return {};
+  const yaml = match[1];
+  const result = {};
+  for (const line of yaml.split('\n')) {
+    const kv = line.match(/^(\w[\w-]*):\s*(.+)/);
+    if (kv) result[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+  }
+  return result;
+}
+
+app.get('/api/skills', (_req, res) => {
+  const skills = [];
+  for (const { dir, type } of SKILLS_DIRS) {
+    if (!existsSync(dir)) continue;
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const skillDir = path.join(dir, entry.name);
+        const skillMdPath = path.join(skillDir, 'SKILL.md');
+        const skill = { name: entry.name, type, description: null, hasSkillMd: false };
+        if (existsSync(skillMdPath)) {
+          skill.hasSkillMd = true;
+          try {
+            const content = require('fs').readFileSync(skillMdPath, 'utf-8');
+            const fm = parseSkillFrontmatter(content);
+            if (fm.name) skill.name = fm.name;
+            if (fm.description) skill.description = fm.description;
+          } catch { /* ignore read errors */ }
+        }
+        skills.push(skill);
+      }
+    } catch { /* dir not readable */ }
+  }
+  res.json(skills);
+});
+
+app.get('/api/skills/:name', (req, res) => {
+  const name = req.params.name;
+  if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid skill name' });
+  }
+  for (const { dir, type } of SKILLS_DIRS) {
+    const skillMdPath = path.join(dir, name, 'SKILL.md');
+    if (existsSync(skillMdPath)) {
+      try {
+        const content = require('fs').readFileSync(skillMdPath, 'utf-8');
+        return res.json({ name, type, content });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
+  }
+  res.status(404).json({ error: 'Skill not found' });
+});
+
+// --- Panel: Corrections Viewer ---
+
+const CORRECTIONS_DIR = path.join(os.homedir(), 'clawd', 'memory', 'corrections');
+
+app.get('/api/corrections', (_req, res) => {
+  if (!existsSync(CORRECTIONS_DIR)) return res.json([]);
+  try {
+    const files = readdirSync(CORRECTIONS_DIR).filter(f => f.endsWith('.md')).sort().reverse();
+    const corrections = files.map(f => {
+      const fp = path.join(CORRECTIONS_DIR, f);
+      const st = statSync(fp);
+      return { name: f, sizeBytes: st.size, modified: st.mtime.toISOString() };
+    });
+    res.json(corrections);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/corrections/:name', (req, res) => {
+  const name = req.params.name;
+  if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid file name' });
+  }
+  const fp = path.join(CORRECTIONS_DIR, name);
+  if (!existsSync(fp)) return res.status(404).json({ error: 'Not found' });
+  try {
+    const content = require('fs').readFileSync(fp, 'utf-8');
+    res.json({ name, content });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Session Manager ---
+
+app.get('/api/sessions/list', (_req, res) => {
+  try {
+    if (!existsSync(SESSION_DIR)) return res.json([]);
+    const files = readdirSync(SESSION_DIR).filter(f => f.endsWith('.jsonl') && !f.includes('.deleted') && !f.includes('.lock'));
+    const sessions = files.map(f => {
+      const fp = path.join(SESSION_DIR, f);
+      const st = statSync(fp);
+      return {
+        sessionId: f.replace('.jsonl', ''),
+        filename: f,
+        sizeBytes: st.size,
+        lastModified: st.mtime.toISOString(),
+        estimatedMessages: Math.round(st.size / 500),
+      };
+    }).sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Cron Manager ---
+
+app.get('/api/cron/list', (_req, res) => {
+  execFile('clawdbot', ['cron', 'list', '--json'], { timeout: 5000 }, (err, stdout) => {
+    if (err) return res.status(502).json({ error: 'clawdbot cron list failed: ' + err.message });
+    try {
+      const parsed = JSON.parse(stdout);
+      res.json(Array.isArray(parsed) ? parsed : parsed.jobs || parsed.crons || []);
+    } catch (e) {
+      res.status(500).json({ error: 'Parse error: ' + e.message, raw: stdout.slice(0, 500) });
+    }
+  });
+});
+
+app.post('/api/cron/run', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'Missing cron job id' });
+  // Sanitize id — only allow alphanumeric, dashes, underscores
+  if (!/^[\w-]+$/.test(String(id))) return res.status(400).json({ error: 'Invalid cron job id' });
+  execFile('clawdbot', ['cron', 'run', '--id', String(id)], { timeout: 10000 }, (err, stdout) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ status: 'triggered', id, output: stdout.trim() });
+  });
+});
+
+// --- Panel: Alerts ---
+
+app.get('/api/alerts', async (_req, res) => {
+  const alerts = [];
+
+  // 1. Ollama health
+  const ollama = await ollamaFetch('/');
+  if (ollama.error) {
+    alerts.push({ severity: 'red', title: 'Ollama Unreachable', detail: ollama.error });
+  } else {
+    alerts.push({ severity: 'green', title: 'Ollama Healthy', detail: 'Responding at ' + config.ollama.url });
+  }
+
+  // 2. Database files
+  for (const [label, dbPath] of [['memory.db', config.paths.searchDb], ['chat-memory.db', config.paths.chatDb]]) {
+    if (!existsSync(dbPath)) {
+      alerts.push({ severity: 'red', title: label + ' Missing', detail: 'Expected at ' + dbPath });
+    } else {
+      const st = statSync(dbPath);
+      const sizeMB = (st.size / (1024 * 1024)).toFixed(1);
+      if (st.size > 500 * 1024 * 1024) {
+        alerts.push({ severity: 'yellow', title: label + ' Large', detail: sizeMB + ' MB — consider cleanup' });
+      } else {
+        alerts.push({ severity: 'green', title: label + ' OK', detail: sizeMB + ' MB' });
+      }
+    }
+  }
+
+  // 3. Disk space
+  await new Promise((resolve) => {
+    execFile('/bin/df', ['-g', '/'], { timeout: 3000 }, (err, stdout) => {
+      if (err) {
+        alerts.push({ severity: 'yellow', title: 'Disk Check Failed', detail: err.message });
+      } else {
+        const lines = stdout.trim().split('\n');
+        if (lines.length > 1) {
+          const parts = lines[1].split(/\s+/);
+          const availGB = parseInt(parts[3]);
+          if (!isNaN(availGB)) {
+            if (availGB < 10) {
+              alerts.push({ severity: 'red', title: 'Disk Space Low', detail: availGB + ' GB free' });
+            } else if (availGB < 30) {
+              alerts.push({ severity: 'yellow', title: 'Disk Space Moderate', detail: availGB + ' GB free' });
+            } else {
+              alerts.push({ severity: 'green', title: 'Disk Space OK', detail: availGB + ' GB free' });
+            }
+          }
+        }
+      }
+      resolve();
+    });
+  });
+
+  // 4. Context window (from clawdbot status)
+  await new Promise((resolve) => {
+    execFile('clawdbot', ['status', '--json'], { timeout: 5000 }, (err, stdout) => {
+      if (err) {
+        alerts.push({ severity: 'yellow', title: 'Clawdbot Status Unavailable', detail: err.message });
+      } else {
+        try {
+          const parsed = JSON.parse(stdout);
+          const recent = parsed.sessions?.recent?.[0];
+          if (recent && recent.percentUsed > 85) {
+            alerts.push({ severity: 'red', title: 'Context Window Critical', detail: recent.percentUsed + '% used' });
+          } else if (recent && recent.percentUsed > 70) {
+            alerts.push({ severity: 'yellow', title: 'Context Window High', detail: recent.percentUsed + '% used' });
+          } else if (recent) {
+            alerts.push({ severity: 'green', title: 'Context Window OK', detail: (recent.percentUsed || 0) + '% used' });
+          }
+        } catch { /* ignore parse errors */ }
+      }
+      resolve();
+    });
+  });
+
+  res.json(alerts);
+});
+
 // --- WebSocket auto-refresh ---
 
 async function broadcastStatus() {
