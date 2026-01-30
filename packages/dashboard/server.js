@@ -721,7 +721,7 @@ app.post('/api/context-pipeline/persist', async (req, res) => {
     }
     res.json({ status: 'ok' });
   } catch (err) {
-    res.json({ status: 'error', error: err.message });
+    res.status(500).json({ status: 'error', error: err.message });
   }
 });
 

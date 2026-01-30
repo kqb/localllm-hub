@@ -1,12 +1,12 @@
-const { existsSync, readFileSync } = require('fs');
-const path = require('path');
 const config = require('../../shared/config');
 const logger = require('../../shared/logger');
 const { unifiedSearch } = require('../chat-ingest/unified-search');
 const { routeToModel } = require('../triage');
 
-// In-memory session storage
+// In-memory session storage with LRU eviction
 const sessions = new Map();
+const MAX_SESSIONS = 100; // Prevent unbounded growth
+const MAX_MESSAGES_PER_SESSION = 1000; // Cap messages per session
 
 // Stats tracking
 const stats = {
@@ -19,6 +19,23 @@ const stats = {
 
 function getSession(sessionId) {
   if (!sessions.has(sessionId)) {
+    // LRU eviction: if at max capacity, remove oldest session
+    if (sessions.size >= MAX_SESSIONS) {
+      let oldestKey = null;
+      let oldestTime = Infinity;
+      for (const [key, session] of sessions.entries()) {
+        const time = new Date(session.lastActive).getTime();
+        if (time < oldestTime) {
+          oldestTime = time;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey) {
+        logger.debug(`Evicting oldest session: ${oldestKey}`);
+        sessions.delete(oldestKey);
+      }
+    }
+
     sessions.set(sessionId, {
       id: sessionId,
       messages: [],
@@ -38,6 +55,14 @@ function addMessageToSession(sessionId, message) {
     ...message,
     timestamp: new Date().toISOString(),
   });
+
+  // Cap messages per session to prevent unbounded growth
+  if (session.messages.length > MAX_MESSAGES_PER_SESSION) {
+    const excess = session.messages.length - MAX_MESSAGES_PER_SESSION;
+    logger.debug(`Trimming ${excess} old messages from session ${sessionId}`);
+    session.messages = session.messages.slice(-MAX_MESSAGES_PER_SESSION);
+  }
+
   return session;
 }
 
@@ -93,10 +118,20 @@ async function assembleContext(message, sessionId, options = {}) {
   const startTime = Date.now();
   stats.totalCalls++;
 
-  const pipelineConfig = {
-    ...config.contextPipeline,
-    ...options,
-  };
+  // Deep merge config with options (from shared/config.js pattern)
+  function deepMerge(target, source) {
+    const result = { ...target };
+    for (const key of Object.keys(source)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
+        result[key] = deepMerge(target[key], source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    return result;
+  }
+
+  const pipelineConfig = deepMerge(config.contextPipeline, options);
 
   // Normalize message
   const userMessage = typeof message === 'string'
