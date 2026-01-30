@@ -43,7 +43,8 @@ localllm-hub/
 ├── shared/                     # Shared utilities (NOT a package)
 │   ├── ollama.js               #   Single Ollama client wrapper
 │   ├── config.js               #   Config with deep-merge overrides from config.local.json
-│   └── logger.js               #   Leveled stderr logger (LOG_LEVEL=debug|info|warn|error)
+│   ├── logger.js               #   Leveled stderr logger (LOG_LEVEL=debug|info|warn|error)
+│   └── utils.js                #   Shared deepMerge utility (used by config.js + context-pipeline)
 │
 ├── packages/                   # npm workspaces
 │   ├── embeddings/             #   Vector embedding: embed(), batchEmbed(), compare()
@@ -74,12 +75,20 @@ localllm-hub/
 │   │   ├── cli.js              #     search <query>, reindex --source --db
 │   │   └── package.json
 │   │
+│   ├── context-pipeline/        #   Context enrichment pipeline (RAG + routing + skip logic)
+│   │   ├── index.js            #     assembleContext() — skip/RAG/route/assembly
+│   │   ├── route-config.js     #     Route-aware RAG source/topK mapping per model tier
+│   │   ├── history.js          #     History compression (Qwen summarization) + deduplication
+│   │   ├── benchmark-detailed.js #   Phase 1/2/3 benchmark suite (9 tests)
+│   │   └── package.json
+│   │
 │   ├── chat-ingest/            #   Session transcript + Telegram ingestion
 │   │   ├── index.js            #     parseTranscriptMessages(), chunkMessages()
 │   │   ├── ingest.js           #     Incremental JSONL ingestion → SQLite + embeddings
 │   │   ├── watcher.js          #     File watcher for live session ingestion
 │   │   ├── telegram.js         #     Telegram export (tdl JSON) parser + ingester
-│   │   ├── unified-search.js   #     Cross-source search (memory + chat + telegram)
+│   │   ├── unified-search.js   #     Cross-source search + embedding cache + connection pool
+│   │   ├── vector-index.js     #     In-memory Float32Array matrix for fast similarity search
 │   │   ├── search.js           #     Chat-specific search
 │   │   ├── cli.js              #     chat ingest, chat search, chat status
 │   │   └── package.json
@@ -104,9 +113,9 @@ localllm-hub/
 ```javascript
 const config = {
   models: {
-    triage: 'qwen2.5:7b',          // Fast classification + urgency
-    code: 'qwen2.5-coder:32b',     // Code tasks (19GB, loads on demand)
-    reasoning: 'deepseek-r1:32b',  // Complex reasoning (19GB, loads on demand)
+    triage: 'qwen2.5:14b',         // Router + classification + triage (upgraded from 7b)
+    code: 'qwen2.5-coder:14b',     // Code tasks (~9GB, on demand)
+    reasoning: 'deepseek-r1:14b',  // Complex reasoning (~9GB, on demand)
     embed: 'mxbai-embed-large',    // Primary embeddings (1024-dim, 669MB)
     embedFast: 'nomic-embed-text', // Fallback embeddings (768-dim, 274MB)
   },
@@ -127,13 +136,27 @@ const config = {
   },
   embedding: {
     dimension: 1024,
-    chunkSize: 500,     // chars per chunk
-    chunkOverlap: 100,  // overlap between chunks
+    chunkSize: 1500,    // chars per chunk (upgraded from 500)
+    chunkOverlap: 300,  // overlap between chunks (upgraded from 100)
   },
   watcher: {
     pollInterval: 5000,   // ms between file checks
     debounce: 2000,       // ms debounce after file change
     newFileScan: 30000,   // ms between scans for new files
+  },
+  contextPipeline: {
+    enabled: true,
+    parallelExecution: true,      // Phase 1: RAG + routing in parallel
+    vectorIndex: { enabled: true, staleAfterMs: 60000 },  // Phase 1: in-memory search
+    features: {
+      skipLogic: true,            // Phase 2: bypass RAG for "ok"/"thanks" etc
+      embeddingCache: true,       // Phase 2: 5min TTL LRU cache for query embeddings
+      timingStats: true,          // Phase 2: per-stage timing in getStats()
+      connectionPool: true,       // Phase 3: reuse SQLite connections
+      routeAwareSources: true,    // Phase 3: trim RAG results by route
+      historyCompression: false,  // Phase 3: Qwen summarization (off — adds latency)
+    },
+    // See also: shortTerm, rag, routing, systemNotes, persistence sections
   },
 };
 ```
@@ -149,14 +172,14 @@ Only 1-2 models fit in memory simultaneously (~27GB available). Target: downsize
 | Model | Size | Role | Status |
 |-------|------|------|--------|
 | mxbai-embed-large | 669MB | Embeddings (1024-dim) | Always loaded |
-| qwen2.5:7b | 4.7GB | Router + Classification + Triage | Always loaded |
+| qwen2.5:14b | ~9GB | Router + Classification + Triage | Always loaded (upgraded from 7b) |
 | nomic-embed-text | 274MB | Fallback embeddings (768-dim) | Lighter alternative |
-| qwen2.5-coder:14b | ~9GB | Code tasks (local fallback) | On-demand (target) |
-| deepseek-r1:14b | ~9GB | Complex reasoning (local) | On-demand (target) |
+| qwen2.5-coder:14b | ~9GB | Code tasks (local fallback) | On-demand |
+| deepseek-r1:14b | ~9GB | Complex reasoning (local) | On-demand |
 | ~~qwen2.5-coder:32b~~ | ~~19GB~~ | ~~Code tasks~~ | Deprecated — too large |
 | ~~deepseek-r1:32b~~ | ~~19GB~~ | ~~Complex reasoning~~ | Deprecated — too large |
 
-**Total always-on:** ~5.4GB (embeddings + router). **Headroom:** ~22GB.
+**Total always-on:** ~9.7GB (embeddings + router 14b). **Headroom:** ~17GB.
 
 **Remote models (no Ollama, no VRAM cost):**
 - Gemini 3 Pro — via CDP browser automation (free, authenticated browser)
@@ -300,6 +323,37 @@ CREATE TABLE chat_chunks (
 CREATE TABLE ingest_progress (file TEXT PRIMARY KEY, last_offset INTEGER, last_timestamp TEXT, chunk_count INTEGER);
 CREATE TABLE telegram_chunks (id INTEGER PRIMARY KEY, chat_id TEXT, start_ts TEXT, end_ts TEXT, text TEXT, embedding BLOB);
 ```
+
+### context-pipeline (`packages/context-pipeline/`)
+
+Enriches user messages with RAG context, routing decisions, and conversation history before sending to a model. This is the "Librarian" from the optimization plan — it pre-fetches context so Claude never has to search.
+
+```javascript
+const { assembleContext, getStats, resetStats } = require('@localllm/context-pipeline');
+const result = await assembleContext('explain the routing architecture', 'session-123');
+// → { ragContext: [...], routeDecision: { route: 'claude_sonnet', ... }, shortTermHistory: [...], ... }
+```
+
+**Pipeline stages** (run in parallel where possible):
+1. **Skip check** — Short acks ("ok", "thanks") return in <1ms, no RAG/routing
+2. **Short-term history** — In-memory session messages, deduped, optionally compressed
+3. **RAG search** — `unifiedSearch()` via VectorIndex (in-memory, ~20ms for 6400 chunks)
+4. **Route classification** — Qwen 14B classifies intent → model tier (~1.1s)
+5. **Route-aware trim** — Filters RAG results by route (local→memory only, opus→all sources)
+6. **Assembly** — Constructs final prompt with context injection
+
+**Feature flags** (`config.contextPipeline.features`): `skipLogic`, `embeddingCache`, `timingStats`, `connectionPool`, `routeAwareSources`, `historyCompression` — all independently toggleable, all default ON except `historyCompression`.
+
+**Stats API**: `getStats()` returns per-stage averages (embedding, search, routing, assembly), skip rate, cache hits. Exposed via dashboard `/api/context-monitor`.
+
+**Benchmark**: `node packages/context-pipeline/benchmark-detailed.js` — 9 tests across Phase 1/2/3. Baseline ~2500ms, current blended avg ~570ms (77% improvement).
+
+**Key files**:
+- `index.js` — Main `assembleContext()` with skip logic, parallel execution, timing
+- `route-config.js` — `trimRagForRoute()` maps routes to source/topK/minScore
+- `history.js` — `compressHistory()` (Qwen summarization), `deduplicateMessages()`
+
+**VectorIndex** (`chat-ingest/vector-index.js`): Preloads all chunk embeddings into a contiguous Float32Array matrix. Pre-normalizes rows so dot product = cosine similarity. Auto-reloads after 60s staleness. Call `vectorIndex.invalidate()` after reindexing.
 
 ### dashboard (`packages/dashboard/`)
 
@@ -519,10 +573,11 @@ curl -s http://localhost:3847/api/chat/sessions | jq .
 
 This project is the "body" of a Multi-Agent System where Claude is the executive brain and the M4 Max provides memory, ears, and routing. These optimizations maximize that architecture.
 
-### 1. RAG Quality: Concept-Level Chunking
+**Implementation status:** See `docs/CONTEXT_PIPELINE_OPTIMIZATIONS.md` for the full roadmap. Phase 1 (P0) and Phase 2+3 (P1-P3) are complete. Phase 4 (dimension reduction) is deferred.
 
-**Current:** 500 char chunks, 100 overlap — produces sentence fragments that force Claude to guess connections.
-**Target:** 1500 char chunks, 300 overlap — gives Claude full concept blocks (entire functions, config sections, decision threads).
+### 1. RAG Quality: Concept-Level Chunking ✅
+
+**Done.** Config defaults updated to 1500 char chunks, 300 overlap. Run `node cli.js reindex` to rebuild indices with new sizes.
 
 ```javascript
 // config change needed:
@@ -537,10 +592,9 @@ embedding: {
 
 **After changing:** Run `node cli.js reindex` to rebuild all search indices with new chunk sizes.
 
-### 2. Model Budget: Downsize for Breathing Room
+### 2. Model Budget: Downsize for Breathing Room ✅
 
-**Current:** qwen2.5-coder:32b (19GB) + deepseek-r1:32b (19GB) — can't coexist, causes thrash.
-**Target:** Downsize to 14B variants (~9GB each), freeing ~10GB for always-loaded services.
+**Done.** Config updated to 14B variants. Router upgraded from qwen2.5:7b to qwen2.5:14b.
 
 | Model | Size | Role | Status |
 |-------|------|------|--------|
@@ -700,19 +754,22 @@ Each model has different context budgets. Manage them accordingly.
 - [ ] **Router prompt tuning** — Test Qwen 14B router with verification prompts, tune decision tree
 
 ### Context & Memory Optimization
-- [ ] **Librarian agent** — Pre-fetch context before Claude calls
-- [ ] **Chunk size migration** — Increase to 1500 chars, reindex all sources
-- [ ] **Always-warm router** — Keep Qwen 7B loaded via OLLAMA_KEEP_ALIVE or preload cron
+- [x] **Context pipeline** — `packages/context-pipeline/` with parallel RAG+routing, skip logic, embedding cache, route-aware trimming, per-stage timing, history compression
+- [x] **In-memory vector index** — Float32Array matrix search in ~20ms over 6400 chunks (was ~2000ms SQLite scan)
+- [x] **Chunk size migration** — Increased to 1500 chars / 300 overlap in config defaults
+- [ ] **Librarian agent** — Wire context pipeline into Clawdbot prompt flow (pipeline exists, integration pending)
+- [ ] **Always-warm router** — Keep Qwen 14B loaded via OLLAMA_KEEP_ALIVE or preload cron
 
 ### Model Budget
-- [ ] **Model downsize** — Pull 14B variants (`qwen2.5-coder:14b`, `deepseek-r1:14b`), update config, test quality
+- [x] **Model downsize** — Config updated to 14B variants (`qwen2.5-coder:14b`, `deepseek-r1:14b`)
+- [x] **Qwen router upgrade** — Upgraded triage model from `qwen2.5:7b` to `qwen2.5:14b`
 - [ ] **Qwen router context** — Set `num_ctx: 32768` for local model
 
 ### Infrastructure
 - [ ] HTTP API server mode (expose localllm-hub as REST for non-Node consumers)
-- [ ] Embedding cache (skip re-embedding unchanged files on reindex)
+- [x] Embedding cache — Query embedding cache with 5min TTL in `unified-search.js`
 - [ ] Streaming mode for long-running generate/chat operations
-- [ ] Metrics endpoint (latency/throughput stats)
+- [x] Metrics endpoint — Per-stage timing stats via `getStats()`, exposed through `/api/context-monitor`
 - [ ] Token economics dashboard — Track cost savings from local routing per session
 
 ### Pipelines
