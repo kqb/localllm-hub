@@ -330,6 +330,12 @@ program
       } else {
         console.log(JSON.stringify(result, null, 2));
       }
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
 // Pipelines
 const pipeline = program
   .command('pipeline')
@@ -405,6 +411,16 @@ program
     process.env.DASHBOARD_PORT = options.port;
     const { start } = require('./packages/dashboard/server');
     start();
+  });
+
+// API Server
+program
+  .command('api-server')
+  .description('Start the REST API server')
+  .option('-p, --port <port>', 'Port number', '3848')
+  .action((options) => {
+    const { start } = require('./packages/api-server');
+    start(parseInt(options.port));
   });
 
 program.parse();
