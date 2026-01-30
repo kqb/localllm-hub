@@ -330,7 +330,7 @@ function mapRouteToClawdbotModel(route) {
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
     'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
-    'local_qwen': null,  // Local-only, not available in Clawdbot
+    'local_qwen': 'anthropic/claude-sonnet-4-5',  // Fallback to Sonnet (local-only not available in Clawdbot)
   };
   return mapping[route] || null;
 }
@@ -825,7 +825,7 @@ function mapRouteToClawdbotModel(route) {
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
     'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
-    'local_qwen': null,  // Local-only, not available in Clawdbot
+    'local_qwen': 'anthropic/claude-sonnet-4-5',  // Fallback to Sonnet (local-only not available in Clawdbot)
   };
   return mapping[route] || null;
 }
