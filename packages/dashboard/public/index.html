@@ -2829,7 +2829,7 @@ async function loadContextPipeline() {
     if (activity.length > 0) {
       const routeCounts = {};
       for (const a of activity) {
-        const r = a.route || 'unknown';
+        const r = a.routeDecision?.route || a.route || 'unknown';
         routeCounts[r] = (routeCounts[r] || 0) + 1;
       }
       const routeColors = {
