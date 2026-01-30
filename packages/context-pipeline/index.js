@@ -1,7 +1,10 @@
 const config = require('../../shared/config');
 const logger = require('../../shared/logger');
+const { deepMerge } = require('../../shared/utils');
 const { unifiedSearch } = require('../chat-ingest/unified-search');
 const { routeToModel } = require('../triage');
+const { trimRagForRoute } = require('./route-config');
+const { compressHistory, deduplicateMessages } = require('./history');
 
 // In-memory session storage with LRU eviction
 const sessions = new Map();
@@ -11,10 +14,17 @@ const MAX_MESSAGES_PER_SESSION = 1000; // Cap messages per session
 // Stats tracking
 const stats = {
   totalCalls: 0,
+  skippedCalls: 0,        // Optimization #5: Smart Skip Logic
   avgAssemblyTime: 0,
   cacheHits: 0,
   cacheMisses: 0,
   lastReset: new Date().toISOString(),
+  stages: {               // Optimization #8: Per-Stage Timing Stats
+    embedding: { totalMs: 0, count: 0 },
+    search: { totalMs: 0, count: 0 },
+    routing: { totalMs: 0, count: 0 },
+    assembly: { totalMs: 0, count: 0 },
+  },
 };
 
 function getSession(sessionId) {
@@ -102,6 +112,44 @@ function truncateHistory(messages, maxMessages, maxTokens) {
   return result;
 }
 
+// ============================================================================
+// Optimization #8: Per-Stage Timing Stats
+// ============================================================================
+
+/**
+ * Record timing for a pipeline stage
+ */
+function recordStage(name, ms) {
+  const s = stats.stages[name];
+  if (s) { s.totalMs += ms; s.count++; }
+}
+
+// ============================================================================
+// Optimization #5: Smart Skip Logic
+// ============================================================================
+
+const SKIP_PATTERNS = [
+  /^(ok|yes|no|sure|thanks?|ty|k|got it|done|np|yep|nope|lol|haha)$/i,
+  /^HEARTBEAT/,
+  /^System:/,
+  /^\[media attached:.*\]$/,
+];
+const SKIP_MAX_LENGTH = 15;
+
+/**
+ * Determine if a message should skip expensive enrichment (RAG + routing)
+ */
+function shouldSkipEnrichment(messageText) {
+  if (messageText.length <= SKIP_MAX_LENGTH) {
+    const hasVerb = /\b(fix|run|show|find|search|list|get|set|add|remove|delete|update|create|explain|describe)\b/i;
+    if (!hasVerb.test(messageText)) return true;
+  }
+  for (const pattern of SKIP_PATTERNS) {
+    if (pattern.test(messageText.trim())) return true;
+  }
+  return false;
+}
+
 /**
  * Assemble context for a message by gathering:
  * - Short-term conversation history
@@ -118,19 +166,6 @@ async function assembleContext(message, sessionId, options = {}) {
   const startTime = Date.now();
   stats.totalCalls++;
 
-  // Deep merge config with options (from shared/config.js pattern)
-  function deepMerge(target, source) {
-    const result = { ...target };
-    for (const key of Object.keys(source)) {
-      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
-        result[key] = deepMerge(target[key], source[key]);
-      } else {
-        result[key] = source[key];
-      }
-    }
-    return result;
-  }
-
   const pipelineConfig = deepMerge(config.contextPipeline, options);
 
   // Normalize message
@@ -141,6 +176,34 @@ async function assembleContext(message, sessionId, options = {}) {
   const messageText = typeof userMessage.content === 'string'
     ? userMessage.content
     : JSON.stringify(userMessage.content);
+
+  // Optimization #5: Skip enrichment for simple messages
+  const skipEnabled = pipelineConfig.features?.skipLogic !== false;
+  if (skipEnabled && shouldSkipEnrichment(messageText)) {
+    stats.skippedCalls++;
+    const assemblyTime = Date.now() - startTime;
+
+    const result = {
+      shortTermHistory: [],
+      ragContext: [],
+      routeDecision: {
+        route: pipelineConfig.routing?.fallback || 'claude_sonnet',
+        reason: 'skipped (simple message)',
+        priority: 'low',
+      },
+      systemNotes: [],
+      assembledPrompt: [userMessage],
+      metadata: {
+        sessionId,
+        assemblyTime,
+        skipped: true,
+        config: pipelineConfig,
+      },
+    };
+
+    logger.debug(`Skipped enrichment for simple message: "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
+    return result;
+  }
 
   const result = {
     shortTermHistory: [],
@@ -161,11 +224,15 @@ async function assembleContext(message, sessionId, options = {}) {
     const maxMessages = pipelineConfig.shortTerm.maxMessages || 20;
     const maxTokens = pipelineConfig.shortTerm.maxTokenEstimate || 8000;
 
-    result.shortTermHistory = truncateHistory(
-      session.messages,
-      maxMessages,
-      maxTokens
-    );
+    // Deduplicate consecutive identical messages before truncation
+    const dedupedMessages = deduplicateMessages(session.messages);
+
+    // Use history compression if enabled (Optimization #7), otherwise hard truncate
+    if (pipelineConfig.features?.historyCompression) {
+      result.shortTermHistory = await compressHistory(dedupedMessages, maxMessages, maxTokens);
+    } else {
+      result.shortTermHistory = truncateHistory(dedupedMessages, maxMessages, maxTokens);
+    }
 
     logger.debug(`Loaded ${result.shortTermHistory.length} messages from history`);
   }
@@ -189,6 +256,7 @@ async function assembleContext(message, sessionId, options = {}) {
             const filtered = searchResults.filter(r => r.score >= minScore);
             const ragTime = Date.now() - ragStart;
 
+            recordStage('search', ragTime); // Optimization #8
             logger.debug(`RAG: ${filtered.length}/${searchResults.length} results (${ragTime}ms)`);
             return filtered;
           })()
@@ -202,6 +270,7 @@ async function assembleContext(message, sessionId, options = {}) {
             const decision = await routeToModel(messageText, recentHistory);
             const routeTime = Date.now() - routeStart;
 
+            recordStage('routing', routeTime); // Optimization #8
             logger.debug(`Route: ${decision.route} (${routeTime}ms)`);
             return decision;
           })()
@@ -238,13 +307,16 @@ async function assembleContext(message, sessionId, options = {}) {
     // 2. RAG context
     if (pipelineConfig.rag?.enabled) {
       try {
+        const ragStart = Date.now(); // Optimization #8
         const topK = pipelineConfig.rag.topK || 5;
         const minScore = pipelineConfig.rag.minScore || 0.3;
         const sources = pipelineConfig.rag.sources || ['memory', 'chat', 'telegram'];
 
         const searchResults = await unifiedSearch(messageText, { topK, sources });
         result.ragContext = searchResults.filter(r => r.score >= minScore);
+        const ragTime = Date.now() - ragStart;
 
+        recordStage('search', ragTime); // Optimization #8
         logger.debug(`Found ${result.ragContext.length} RAG results (${searchResults.length} total, ${result.ragContext.length} above threshold)`);
       } catch (err) {
         logger.error(`RAG search failed: ${err.message}`);
@@ -255,10 +327,14 @@ async function assembleContext(message, sessionId, options = {}) {
     // 3. Routing decision
     if (pipelineConfig.routing?.enabled) {
       try {
+        const routeStart = Date.now(); // Optimization #8
         // Pass last 2 messages from history for context (sliding window)
         // This helps resolve ambiguous references like "Fix it", "Run that"
         const recentHistory = result.shortTermHistory.slice(-2);
         result.routeDecision = await routeToModel(messageText, recentHistory);
+        const routeTime = Date.now() - routeStart;
+
+        recordStage('routing', routeTime); // Optimization #8
         logger.debug(`Route decision: ${result.routeDecision.route} (${result.routeDecision.reason})`);
       } catch (err) {
         logger.error(`Routing failed: ${err.message}`);
@@ -271,6 +347,17 @@ async function assembleContext(message, sessionId, options = {}) {
     }
   }
 
+  // 3b. Route-aware RAG trimming (Optimization #6)
+  // If route-aware sources are enabled, trim RAG results based on route decision.
+  // Uses Option B: speculative full search (parallel), then trim post-hoc.
+  if (pipelineConfig.features?.routeAwareSources !== false && result.routeDecision) {
+    const before = result.ragContext.length;
+    result.ragContext = trimRagForRoute(result.ragContext, result.routeDecision);
+    if (result.ragContext.length < before) {
+      logger.debug(`Route-aware trim: ${before} → ${result.ragContext.length} results for route=${result.routeDecision.route}`);
+    }
+  }
+
   // 4. System notes
   if (pipelineConfig.systemNotes?.enabled) {
     const session = getSession(sessionId);
@@ -278,6 +365,7 @@ async function assembleContext(message, sessionId, options = {}) {
   }
 
   // 5. Assemble final prompt
+  const assemblyStart = Date.now(); // Optimization #8
   const assembledMessages = [];
 
   // Add RAG context as system message if configured
@@ -319,6 +407,8 @@ async function assembleContext(message, sessionId, options = {}) {
   }
 
   result.assembledPrompt = assembledMessages;
+  const assemblyTime_stage = Date.now() - assemblyStart;
+  recordStage('assembly', assemblyTime_stage); // Optimization #8
 
   // Persist if enabled
   if (pipelineConfig.persistence?.enabled && pipelineConfig.persistence?.saveTurns) {
@@ -337,10 +427,18 @@ async function assembleContext(message, sessionId, options = {}) {
  * Get pipeline statistics
  */
 function getStats() {
+  // Optimization #8: Calculate stage averages
+  const stageAverages = {};
+  for (const [name, s] of Object.entries(stats.stages)) {
+    stageAverages[name] = s.count > 0 ? Math.round(s.totalMs / s.count) : 0;
+  }
+
   return {
     ...stats,
     activeSessions: sessions.size,
     totalMessages: Array.from(sessions.values()).reduce((sum, s) => sum + s.messages.length, 0),
+    stageAverages,  // Optimization #8
+    skipRate: stats.totalCalls > 0 ? (stats.skippedCalls / stats.totalCalls) : 0,  // Optimization #5
   };
 }
 
@@ -349,10 +447,17 @@ function getStats() {
  */
 function resetStats() {
   stats.totalCalls = 0;
+  stats.skippedCalls = 0;  // Optimization #5
   stats.avgAssemblyTime = 0;
   stats.cacheHits = 0;
   stats.cacheMisses = 0;
   stats.lastReset = new Date().toISOString();
+
+  // Optimization #8: Reset stage stats
+  for (const stage of Object.values(stats.stages)) {
+    stage.totalMs = 0;
+    stage.count = 0;
+  }
 }
 
 /**

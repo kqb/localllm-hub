@@ -74,21 +74,19 @@ const defaults = {
       saveTurns: true,
       saveToDb: true,
     },
+    features: {
+      skipLogic: true,          // Phase 2: skip enrichment for simple messages
+      embeddingCache: true,     // Phase 2: cache query embeddings (5min TTL)
+      timingStats: true,        // Phase 2: per-stage timing breakdown
+      connectionPool: true,     // Phase 3: reuse SQLite connections
+      routeAwareSources: true,  // Phase 3: adapt RAG scope to route
+      historyCompression: false, // Phase 3: summarize old history (off by default — adds latency)
+    },
   },
 };
 
-// Deep merge: overrides win
-function deepMerge(target, source) {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
-      result[key] = deepMerge(target[key], source[key]);
-    } else {
-      result[key] = source[key];
-    }
-  }
-  return result;
-}
+// Import shared deepMerge (Optimization #9: deduplicated)
+const { deepMerge } = require('./utils');
 
 function loadConfig() {
   let overrides = {};
