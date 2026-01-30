@@ -37,6 +37,37 @@ const defaults = {
     debounce: 2000,
     newFileScan: 30000,
   },
+  contextPipeline: {
+    enabled: true,
+    shortTerm: {
+      enabled: true,
+      maxMessages: 20,
+      maxTokenEstimate: 8000,
+    },
+    rag: {
+      enabled: true,
+      topK: 5,
+      minScore: 0.3,
+      sources: ['memory', 'chat', 'telegram'],
+      injectAs: 'system',
+    },
+    routing: {
+      enabled: true,
+      model: 'qwen2.5:7b',
+      fallback: 'claude_sonnet',
+      overrides: {},
+    },
+    systemNotes: {
+      enabled: true,
+      includeWingmanResults: true,
+      maxNotes: 10,
+    },
+    persistence: {
+      enabled: true,
+      saveTurns: true,
+      saveToDb: true,
+    },
+  },
 };
 
 // Deep merge: overrides win

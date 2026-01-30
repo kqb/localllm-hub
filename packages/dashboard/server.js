@@ -638,6 +638,209 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
+// --- Context Pipeline ---
+
+// Helper: map localllm route names to Clawdbot model strings
+function mapRouteToClawdbotModel(route) {
+  const mapping = {
+    'gemini_3_pro': 'anthropic/claude-opus-4-5',  // TODO: Replace with Google AI SDK when available (see Part 7)
+    'claude_opus': 'anthropic/claude-opus-4-5',
+    'claude_sonnet': 'anthropic/claude-sonnet-4-5',
+    'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
+    'local_qwen': null,  // Local-only, not available in Clawdbot
+  };
+  return mapping[route] || null;
+}
+
+app.post('/api/context-pipeline/enrich', async (req, res) => {
+  const { message, sessionId, options } = req.body;
+  if (!message) return res.status(400).json({ error: 'Missing message' });
+
+  try {
+    const { assembleContext } = require('../context-pipeline');
+    const result = await assembleContext(message, sessionId || 'clawdbot-main', options || {});
+
+    // Return only what Clawdbot needs — not the full assembled prompt
+    const enrichment = {
+      // RAG context formatted as text block for injection
+      ragContext: result.ragContext.length > 0
+        ? result.ragContext
+            .map((r, i) => `[${i + 1}] (${r.source}, score: ${r.score.toFixed(2)})\n${r.text}`)
+            .join('\n\n---\n\n')
+        : null,
+
+      // Route suggestion
+      routeSuggestion: result.routeDecision
+        ? {
+            route: result.routeDecision.route,
+            reason: result.routeDecision.reason,
+            priority: result.routeDecision.priority,
+            // Map route names to Clawdbot model identifiers
+            clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
+          }
+        : null,
+
+      // System notes (wingman completions, etc.)
+      systemNotes: result.systemNotes.length > 0
+        ? result.systemNotes.join('\n')
+        : null,
+
+      // Metadata for dashboard stats
+      metadata: {
+        assemblyTimeMs: result.metadata.assemblyTime,
+        ragResultCount: result.ragContext.length,
+        sessionId: result.metadata.sessionId,
+      },
+    };
+
+    res.json(enrichment);
+  } catch (err) {
+    // On error, return empty enrichment (don't block Clawdbot)
+    res.status(200).json({
+      ragContext: null,
+      routeSuggestion: null,
+      systemNotes: null,
+      metadata: { error: err.message },
+    });
+  }
+});
+
+app.post('/api/context-pipeline/persist', async (req, res) => {
+  const { sessionId, userMessage, assistantMessage, model } = req.body;
+  try {
+    const { addMessageToSession } = require('../context-pipeline');
+    if (userMessage) {
+      addMessageToSession(sessionId || 'clawdbot-main', {
+        role: 'user', content: userMessage
+      });
+    }
+    if (assistantMessage) {
+      addMessageToSession(sessionId || 'clawdbot-main', {
+        role: 'assistant', content: assistantMessage, model
+      });
+    }
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.json({ status: 'error', error: err.message });
+  }
+});
+
+app.get('/api/context-pipeline/config', (_req, res) => {
+  try {
+    res.json({
+      config: config.contextPipeline || {},
+      defaults: config._defaults.contextPipeline || {},
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/context-pipeline/config', (req, res) => {
+  try {
+    const { writeFileSync, readFileSync } = require('fs');
+    const overridesPath = config._overridesPath;
+    const patch = req.body;
+
+    if (!patch || typeof patch !== 'object') {
+      return res.status(400).json({ error: 'Invalid config patch' });
+    }
+
+    // Load existing overrides
+    let existing = {};
+    if (existsSync(overridesPath)) {
+      try { existing = JSON.parse(readFileSync(overridesPath, 'utf-8')); } catch {}
+    }
+
+    // Deep merge patch into existing overrides
+    function deepMerge(target, source) {
+      const result = { ...target };
+      for (const key of Object.keys(source)) {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
+          result[key] = deepMerge(target[key], source[key]);
+        } else {
+          result[key] = source[key];
+        }
+      }
+      return result;
+    }
+
+    // Update contextPipeline section
+    existing.contextPipeline = deepMerge(existing.contextPipeline || {}, patch);
+
+    writeFileSync(overridesPath, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+
+    // Reload config
+    delete require.cache[require.resolve('../../shared/config')];
+    const newConfig = require('../../shared/config');
+    Object.assign(config, newConfig);
+
+    res.json({ status: 'saved', config: config.contextPipeline });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/context-pipeline/test', async (req, res) => {
+  try {
+    const { assembleContext } = require('../context-pipeline');
+    const { message, sessionId, options } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Missing message' });
+    }
+
+    const result = await assembleContext(
+      message,
+      sessionId || 'test-session',
+      options || {}
+    );
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+app.get('/api/context-pipeline/stats', (_req, res) => {
+  try {
+    const { getStats } = require('../context-pipeline');
+    res.json(getStats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/context-pipeline/chat', async (req, res) => {
+  try {
+    const { assembleContext, addSystemNote } = require('../context-pipeline');
+    const { message, sessionId, options } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Missing message' });
+    }
+
+    const sid = sessionId || `session-${Date.now()}`;
+
+    // Assemble context
+    const context = await assembleContext(message, sid, options);
+
+    // TODO: Execute the model call based on route decision
+    // For now, just return the assembled context
+    const response = {
+      sessionId: sid,
+      userMessage: message,
+      context,
+      modelResponse: null, // Would be filled by actual model call
+      note: 'Full pipeline execution not yet implemented - model execution pending',
+    };
+
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
 // --- Agent Monitor ---
 
 function getAgentSessions() {

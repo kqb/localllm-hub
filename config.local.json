@@ -6,5 +6,39 @@
   "embedding": {
     "chunkSize": 1500,
     "chunkOverlap": 300
+  },
+  "contextPipeline": {
+    "enabled": true,
+    "shortTerm": {
+      "enabled": true,
+      "maxMessages": 50,
+      "maxTokenEstimate": 20000
+    },
+    "rag": {
+      "enabled": true,
+      "topK": 15,
+      "minScore": 0.3,
+      "sources": [
+        "memory",
+        "chat",
+        "telegram"
+      ],
+      "injectAs": "system"
+    },
+    "routing": {
+      "enabled": true,
+      "model": "qwen2.5:7b",
+      "fallback": "claude_sonnet"
+    },
+    "systemNotes": {
+      "enabled": true,
+      "includeWingmanResults": true,
+      "maxNotes": 10
+    },
+    "persistence": {
+      "enabled": true,
+      "saveTurns": true,
+      "saveToDb": true
+    }
   }
 }

@@ -490,6 +490,14 @@
       <div class="loading-text"><span class="spinner"></span> Loading...</div>
     </div>
   </section>
+
+  <!-- Context Pipeline -->
+  <section class="card" id="context-pipeline-card">
+    <h2>🔄 Context Pipeline</h2>
+    <div id="context-pipeline-content">
+      <div class="loading-text"><span class="spinner"></span> Loading...</div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -2037,9 +2045,11 @@ async function loadEconomics() {
 }
 
 // --- WebSocket ---
+let _wsBackoff = 1000;
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}`);
+  ws.onopen = () => { _wsBackoff = 1000; };
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
@@ -2064,7 +2074,10 @@ function connectWs() {
       }
     } catch {}
   };
-  ws.onclose = () => setTimeout(connectWs, 5000);
+  ws.onclose = () => {
+    _wsBackoff = Math.min(_wsBackoff * 2, 30000);
+    setTimeout(connectWs, _wsBackoff);
+  };
   ws.onerror = () => ws.close();
 }
 
@@ -2503,6 +2516,7 @@ async function saveCompaction() {
   } catch (err) {
     status.innerHTML = '<span class="badge red">❌ ' + escHtml(err.message) + '</span>';
   }
+}
 // --- Embedding Explorer ---
 let embeddingSamples = [];
 let embeddingProjection = [];
@@ -2609,6 +2623,337 @@ if ($('embed-canvas')) {
       $('embed-detail').style.display = 'none';
     }
   });
+}
+
+// --- Context Pipeline ---
+let contextPipelineConfig = {};
+
+async function loadContextPipeline() {
+  try {
+    const res = await fetch(API + '/api/context-pipeline/config');
+    const data = await res.json();
+    contextPipelineConfig = data.config || {};
+
+    const cfg = contextPipelineConfig;
+    const enabled = cfg.enabled !== false;
+
+    let html = '';
+
+    // A. Pipeline Overview
+    html += '<div style="margin-bottom:24px">';
+    html += '<h3 style="margin-bottom:12px">Pipeline Flow</h3>';
+    html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<span>📥 Input</span>';
+    html += '<span>→</span>';
+    html += '<span class="badge ' + (cfg.shortTerm?.enabled ? 'green' : 'red') + '">Short-Term Memory</span>';
+    html += '<span>→</span>';
+    html += '<span class="badge ' + (cfg.rag?.enabled ? 'green' : 'red') + '">RAG Context</span>';
+    html += '<span>→</span>';
+    html += '<span class="badge ' + (cfg.routing?.enabled ? 'green' : 'red') + '">Triage/Route</span>';
+    html += '<span>→</span>';
+    html += '<span class="badge ' + (cfg.systemNotes?.enabled ? 'green' : 'red') + '">System Notes</span>';
+    html += '<span>→</span>';
+    html += '<span>🤖 Model</span>';
+    html += '<span>→</span>';
+    html += '<span class="badge ' + (cfg.persistence?.enabled ? 'green' : 'red') + '">Persist</span>';
+    html += '</div>';
+    html += '<div style="margin-top:8px">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-master-enable" ' + (enabled ? 'checked' : '') + '>';
+    html += '<span>Enable Context Pipeline</span>';
+    html += '</label>';
+    html += '</div>';
+    html += '</div>';
+
+    // B. Short-Term Memory Config
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">Short-Term Memory</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-st-enable" ' + (cfg.shortTerm?.enabled ? 'checked' : '') + '>';
+    html += '<span>Enable</span>';
+    html += '</label>';
+    html += '<div class="filters"><div class="range-wrap"><span>Max Messages:</span><input type="range" id="cp-st-max-msg" min="1" max="50" value="' + (cfg.shortTerm?.maxMessages || 20) + '"><span id="cp-st-max-msg-val">' + (cfg.shortTerm?.maxMessages || 20) + '</span></div></div>';
+    html += '<div class="filters"><div class="range-wrap"><span>Max Tokens:</span><input type="range" id="cp-st-max-tok" min="1000" max="32000" step="1000" value="' + (cfg.shortTerm?.maxTokenEstimate || 8000) + '"><span id="cp-st-max-tok-val">' + (cfg.shortTerm?.maxTokenEstimate || 8000) + '</span></div></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // C. RAG Context Config
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">RAG Context</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-rag-enable" ' + (cfg.rag?.enabled ? 'checked' : '') + '>';
+    html += '<span>Enable</span>';
+    html += '</label>';
+    html += '<div class="filters"><div class="range-wrap"><span>Top K:</span><input type="range" id="cp-rag-topk" min="1" max="20" value="' + (cfg.rag?.topK || 5) + '"><span id="cp-rag-topk-val">' + (cfg.rag?.topK || 5) + '</span></div></div>';
+    html += '<div class="filters"><div class="range-wrap"><span>Min Score:</span><input type="range" id="cp-rag-minscore" min="0" max="1" step="0.05" value="' + (cfg.rag?.minScore || 0.3) + '"><span id="cp-rag-minscore-val">' + (cfg.rag?.minScore || 0.3) + '</span></div></div>';
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+    const sources = cfg.rag?.sources || ['memory', 'chat', 'telegram'];
+    html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="cp-rag-src-memory" ' + (sources.includes('memory') ? 'checked' : '') + '><span>Memory</span></label>';
+    html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="cp-rag-src-chat" ' + (sources.includes('chat') ? 'checked' : '') + '><span>Chat</span></label>';
+    html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="cp-rag-src-telegram" ' + (sources.includes('telegram') ? 'checked' : '') + '><span>Telegram</span></label>';
+    html += '</div>';
+    html += '<div><label>Inject As:</label><select id="cp-rag-inject" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px;color:var(--text);font-size:13px;margin-left:8px">';
+    html += '<option value="system" ' + (cfg.rag?.injectAs === 'system' ? 'selected' : '') + '>System Message</option>';
+    html += '<option value="inline" ' + (cfg.rag?.injectAs === 'inline' ? 'selected' : '') + '>Inline</option>';
+    html += '<option value="none" ' + (cfg.rag?.injectAs === 'none' ? 'selected' : '') + '>None</option>';
+    html += '</select></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // D. Routing Config
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">Routing</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-route-enable" ' + (cfg.routing?.enabled ? 'checked' : '') + '>';
+    html += '<span>Enable</span>';
+    html += '</label>';
+    html += '<div><label>Router Model:</label><input type="text" id="cp-route-model" value="' + escHtml(cfg.routing?.model || 'qwen2.5:7b') + '" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px;color:var(--text);font-size:13px;margin-left:8px;width:200px"></div>';
+    html += '<div><label>Fallback:</label><select id="cp-route-fallback" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px;color:var(--text);font-size:13px;margin-left:8px">';
+    const fallback = cfg.routing?.fallback || 'claude_sonnet';
+    for (const r of ['gemini_3_pro', 'claude_opus', 'claude_sonnet', 'claude_haiku', 'local_qwen']) {
+      html += '<option value="' + r + '" ' + (fallback === r ? 'selected' : '') + '>' + r + '</option>';
+    }
+    html += '</select></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // E. System Notes Config
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">System Notes</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-notes-enable" ' + (cfg.systemNotes?.enabled ? 'checked' : '') + '>';
+    html += '<span>Enable</span>';
+    html += '</label>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-notes-wingman" ' + (cfg.systemNotes?.includeWingmanResults ? 'checked' : '') + '>';
+    html += '<span>Include Wingman Results</span>';
+    html += '</label>';
+    html += '<div class="filters"><div class="range-wrap"><span>Max Notes:</span><input type="range" id="cp-notes-max" min="1" max="50" value="' + (cfg.systemNotes?.maxNotes || 10) + '"><span id="cp-notes-max-val">' + (cfg.systemNotes?.maxNotes || 10) + '</span></div></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // F. Persistence Config
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">Persistence</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-persist-enable" ' + (cfg.persistence?.enabled ? 'checked' : '') + '>';
+    html += '<span>Enable</span>';
+    html += '</label>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-persist-turns" ' + (cfg.persistence?.saveTurns ? 'checked' : '') + '>';
+    html += '<span>Save Turns to DB</span>';
+    html += '</label>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-persist-db" ' + (cfg.persistence?.saveToDb ? 'checked' : '') + '>';
+    html += '<span>Save to Memory DB</span>';
+    html += '</label>';
+    html += '</div>';
+    html += '</div>';
+
+    // G. Test Panel
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">Test Dry Run</h3>';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<input type="text" id="cp-test-input" placeholder="Type a test message..." style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;color:var(--text);font-size:14px">';
+    html += '<button class="btn sm" onclick="runContextPipelineTest()">🧪 Dry Run</button>';
+    html += '<div id="cp-test-results" style="display:none;margin-top:12px"></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Stats
+    html += '<div style="margin-bottom:20px">';
+    html += '<h3 style="margin-bottom:8px">Statistics</h3>';
+    html += '<div id="cp-stats-display" style="display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--bg3);border-radius:var(--radius)">';
+    html += '<div class="loading-text"><span class="spinner"></span> Loading stats...</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Save button
+    html += '<div style="display:flex;gap:8px">';
+    html += '<button class="btn" onclick="saveContextPipelineConfig()">💾 Save Configuration</button>';
+    html += '<button class="btn outline" onclick="loadContextPipeline()">↻ Reload</button>';
+    html += '</div>';
+
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('context-pipeline-content').innerHTML = html;
+
+    // Attach slider listeners
+    ['cp-st-max-msg', 'cp-st-max-tok', 'cp-rag-topk', 'cp-rag-minscore', 'cp-notes-max'].forEach(id => {
+      const el = $(id);
+      if (el) {
+        el.addEventListener('input', () => {
+          const valEl = $(id + '-val');
+          if (valEl) valEl.textContent = el.value;
+        });
+      }
+    });
+
+    // Load stats
+    loadContextPipelineStats();
+
+  } catch (e) {
+    $('context-pipeline-content').innerHTML = '<div style="color:var(--red)">Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+async function loadContextPipelineStats() {
+  try {
+    const res = await fetch(API + '/api/context-pipeline/stats');
+    const stats = await res.json();
+
+    let html = '';
+    html += '<div class="kv"><span class="k">Total Calls</span><span>' + stats.totalCalls + '</span></div>';
+    html += '<div class="kv"><span class="k">Avg Assembly Time</span><span>' + stats.avgAssemblyTime.toFixed(2) + ' ms</span></div>';
+    html += '<div class="kv"><span class="k">Active Sessions</span><span>' + stats.activeSessions + '</span></div>';
+    html += '<div class="kv"><span class="k">Total Messages</span><span>' + stats.totalMessages + '</span></div>';
+
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('cp-stats-display').innerHTML = html;
+  } catch (e) {
+    $('cp-stats-display').innerHTML = '<div style="color:var(--text2);font-size:13px">No stats available</div>';
+  }
+}
+
+async function saveContextPipelineConfig() {
+  try {
+    const patch = {
+      enabled: $('cp-master-enable').checked,
+      shortTerm: {
+        enabled: $('cp-st-enable').checked,
+        maxMessages: parseInt($('cp-st-max-msg').value),
+        maxTokenEstimate: parseInt($('cp-st-max-tok').value),
+      },
+      rag: {
+        enabled: $('cp-rag-enable').checked,
+        topK: parseInt($('cp-rag-topk').value),
+        minScore: parseFloat($('cp-rag-minscore').value),
+        sources: [
+          $('cp-rag-src-memory').checked ? 'memory' : null,
+          $('cp-rag-src-chat').checked ? 'chat' : null,
+          $('cp-rag-src-telegram').checked ? 'telegram' : null,
+        ].filter(Boolean),
+        injectAs: $('cp-rag-inject').value,
+      },
+      routing: {
+        enabled: $('cp-route-enable').checked,
+        model: $('cp-route-model').value,
+        fallback: $('cp-route-fallback').value,
+      },
+      systemNotes: {
+        enabled: $('cp-notes-enable').checked,
+        includeWingmanResults: $('cp-notes-wingman').checked,
+        maxNotes: parseInt($('cp-notes-max').value),
+      },
+      persistence: {
+        enabled: $('cp-persist-enable').checked,
+        saveTurns: $('cp-persist-turns').checked,
+        saveToDb: $('cp-persist-db').checked,
+      },
+    };
+
+    const res = await fetch(API + '/api/context-pipeline/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+
+    const result = await res.json();
+    if (res.ok) {
+      alert('✅ Context Pipeline configuration saved!');
+      loadContextPipeline();
+    } else {
+      alert('❌ Error: ' + result.error);
+    }
+  } catch (e) {
+    alert('❌ Error saving config: ' + e.message);
+  }
+}
+
+async function runContextPipelineTest() {
+  const input = $('cp-test-input').value.trim();
+  if (!input) {
+    alert('Please enter a test message');
+    return;
+  }
+
+  try {
+    $('cp-test-results').innerHTML = '<div class="loading-text"><span class="spinner"></span> Running dry run...</div>';
+    $('cp-test-results').style.display = 'block';
+
+    const res = await fetch(API + '/api/context-pipeline/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: input }),
+    });
+
+    const result = await res.json();
+
+    let html = '';
+    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:12px">';
+    html += '<h4 style="font-size:14px;margin-bottom:8px">Assembly Results</h4>';
+
+    // Short-term messages
+    html += '<div style="margin-bottom:12px">';
+    html += '<strong>Short-Term History:</strong> <span class="badge blue">' + result.shortTermHistory.length + ' messages</span>';
+    html += '</div>';
+
+    // RAG results
+    html += '<div style="margin-bottom:12px">';
+    html += '<strong>RAG Context:</strong> <span class="badge green">' + result.ragContext.length + ' results</span>';
+    if (result.ragContext.length > 0) {
+      html += '<div style="margin-top:8px;font-size:12px">';
+      for (const r of result.ragContext) {
+        html += '<div style="margin-bottom:4px;padding:6px;background:var(--bg3);border-radius:4px">';
+        html += '<span class="badge ' + (r.source === 'memory' ? 'purple' : r.source === 'chat' ? 'blue' : 'orange') + '">' + r.source + '</span>';
+        html += ' <span style="color:var(--green);font-weight:600">' + r.score.toFixed(3) + '</span>';
+        html += '<div style="margin-top:4px;color:var(--text2)">' + escHtml(r.text.substring(0, 100)) + '...</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // Route decision
+    if (result.routeDecision) {
+      html += '<div style="margin-bottom:12px">';
+      html += '<strong>Route Decision:</strong> <span class="badge yellow">' + result.routeDecision.route + '</span>';
+      html += '<div style="font-size:12px;color:var(--text2);margin-top:4px">' + escHtml(result.routeDecision.reason) + '</div>';
+      html += '</div>';
+    }
+
+    // System notes
+    html += '<div style="margin-bottom:12px">';
+    html += '<strong>System Notes:</strong> <span class="badge blue">' + result.systemNotes.length + '</span>';
+    html += '</div>';
+
+    // Assembled prompt
+    html += '<div style="margin-bottom:12px">';
+    html += '<strong>Assembled Prompt:</strong> <span class="badge green">' + result.assembledPrompt.length + ' messages</span>';
+    html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">View Full Prompt</summary>';
+    html += '<pre style="background:#1a1a2e;color:#e0e0e0;padding:10px;border-radius:4px;font-size:11px;margin-top:8px;max-height:300px;overflow-y:auto">' + escHtml(JSON.stringify(result.assembledPrompt, null, 2)) + '</pre>';
+    html += '</details>';
+    html += '</div>';
+
+    // Metadata
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)">';
+    html += '<strong>Assembly Time:</strong> ' + result.metadata.assemblyTime + ' ms';
+    html += '</div>';
+
+    html += '</div>';
+
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('cp-test-results').innerHTML = html;
+
+  } catch (e) {
+    $('cp-test-results').innerHTML = '<div style="color:var(--red)">Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
 // --- Pipelines ---
 async function loadPipelines() {
   try {
@@ -2692,9 +3037,7 @@ async function loadPipelineHistory() {
 
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction()]);
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadEmbeddings()]);
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadContextPipeline()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);

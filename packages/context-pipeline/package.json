@@ -1,0 +1,6 @@
+{
+  "name": "@localllm/context-pipeline",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "Stateful context assembly pipeline for multi-model routing"
+}
