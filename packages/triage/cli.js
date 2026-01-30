@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const { Command } = require('commander');
-const { rateUrgency, routeTask } = require('./index');
+const { rateUrgency, routeTask, routeToModel } = require('./index');
 
 const program = new Command();
 
@@ -28,6 +28,19 @@ program
   .action(async (text) => {
     try {
       const result = await routeTask(text);
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('route-model <text>')
+  .description('Route prompt to best model tier (5-tier All-Star routing)')
+  .action(async (text) => {
+    try {
+      const result = await routeToModel(text);
       console.log(JSON.stringify(result, null, 2));
     } catch (error) {
       console.error('Error:', error.message);

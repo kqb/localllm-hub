@@ -45,26 +45,43 @@ semantic_search_cmd: "node ~/Projects/localllm-hub/packages/search/cli.js search
    ```
 5. Route based on classification: bills → flag, junk → skip, urgent → notify
 
-## Phase 3: Triage Router (New capability)
+## Phase 3: 5-Tier Route Switching ("All-Star" Architecture)
 
-**Priority:** Medium — enables smart local vs API routing
+**Priority:** Medium — enables intelligent multi-model routing across providers
 
 **Current:** No triage — everything hits Claude API
-**New:** `packages/triage/` routes simple tasks locally
+**New:** `packages/triage/` classifies prompts into 5 tiers using local Qwen router
+
+### The Routing Table
+
+| Tier | Model | Role | Access Method | Cost |
+|------|-------|------|---------------|------|
+| S1 | Gemini 3 Pro | Strategic planning, 1M+ context | CDP browser (`gemini-chat.mjs`) | Free (browser) |
+| S2 | Claude Opus | Critical execution, security audits | Max subscription (OAuth) | Flat |
+| A | Claude Sonnet | Dev loop: features, bugs, tests | Max subscription (OAuth) | Flat |
+| B | Claude Haiku | Summarization, triage, fast Q&A | Max subscription (OAuth) | Flat |
+| C | Qwen 14B | Note search, file ops, classification | Ollama local | Free |
 
 ### Steps
 
-1. Define triage rules in Clawdbot:
-   - Urgency 1-2 + simple task → local LLM (qwen2.5:7b)
-   - Urgency 3+ or complex → Claude API
-   - Code tasks → always Claude Code
+1. Update Qwen router prompt in triage package with 5-tier decision tree (see ARCHITECTURE.md)
 2. Add pre-response hook in Clawdbot agent config:
    ```bash
    localllm triage "$USER_MESSAGE"
-   # Returns: { urgency, route: "local"|"api", model, reason }
+   # Returns: { route: "gemini_3_pro"|"claude_opus"|"claude_sonnet"|"claude_haiku"|"local_qwen", reason, priority }
    ```
-3. For local-routed tasks, use Ollama directly (saves API budget)
-4. Log routing decisions to `memory/triage-log.json` for tuning
+3. For `gemini_3_pro` route: invoke `~/clawd/skills/gemini-chat/gemini-chat.mjs` via CDP
+4. For `claude_*` routes: use Clawdbot gateway (OAuth, Max subscription)
+5. For `local_qwen` route: use Ollama directly (zero cost)
+6. Implement fallback chain: Haiku→Sonnet, Sonnet→Gemini, Opus→Gemini, Gemini→Opus
+7. Two-phase planning: strategic tasks → Gemini first, then Opus for execution spec
+8. Log routing decisions to `memory/triage-log.json` for tuning
+
+### Provider Access Constraints
+
+**No API keys.** All remote model access is session-based:
+- **Gemini:** CDP browser automation. Chrome must be running with `--remote-debugging-port=9222` and signed into Google with Gemini Advanced. Start: `~/scripts/start-chrome-cdp.sh`
+- **Claude:** OAuth tokens from Max subscription, managed by Clawdbot in `~/.clawdbot/agents/main/agent/auth-profiles.json`
 
 ## Phase 4: Embeddings Service (Unified embedding layer)
 
@@ -99,31 +116,37 @@ semantic_search_cmd: "node ~/Projects/localllm-hub/packages/search/cli.js search
 ## Integration Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│                 Clawdbot (Zoid)              │
-│                                             │
-│  memory_search ──→ localllm search          │
-│  email check   ──→ localllm classify        │
-│  pre-response  ──→ localllm triage          │
-│  voice msgs    ──→ localllm transcribe      │
-│  any embedding ──→ localllm embed           │
-│                                             │
-└──────────────────┬──────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Clawdbot (Zoid)                           │
+│                                                              │
+│  memory_search ──→ localllm search                           │
+│  email check   ──→ localllm classify                         │
+│  pre-response  ──→ localllm triage (5-tier router)           │
+│  voice msgs    ──→ localllm transcribe                       │
+│  any embedding ──→ localllm embed                            │
+│                                                              │
+└──────────────────┬───────────────────────────────────────────┘
                    │
-        ┌──────────▼──────────┐
-        │   localllm-hub      │
-        │   (npm workspace)   │
-        │                     │
-        │  shared/ollama.js ──┼──→ Ollama (localhost:11434)
-        │  shared/config.js   │      ├─ mxbai-embed-large
-        │  shared/logger.js   │      ├─ qwen2.5:7b
-        │                     │      ├─ qwen2.5-coder:32b
-        │  packages/           │      └─ deepseek-r1:32b
+        ┌──────────▼──────────────────────────────────┐
+        │   localllm-hub (npm workspace)              │
+        │                                             │
+        │  shared/ollama.js ──┼──→ Ollama (127.0.0.1:11434)
+        │  shared/config.js   │      ├─ mxbai-embed-large (embeddings)
+        │  shared/logger.js   │      ├─ qwen2.5:7b (router + triage)
+        │                     │      ├─ qwen2.5-coder:14b (code, on-demand)
+        │  packages/          │      └─ deepseek-r1:14b (reasoning, on-demand)
         │   ├─ embeddings/    │
         │   ├─ classifier/    │    SQLite (search index)
-        │   ├─ triage/        │    whisper.cpp (transcription)
-        │   ├─ search/        │
-        │   └─ transcriber/   │
+        │   ├─ triage/ ───────┼──→ 5-Tier Route Decision
+        │   ├─ search/        │      ├─ S1: Gemini 3 Pro (CDP browser)
+        │   ├─ transcriber/   │      ├─ S2: Claude Opus  (Max OAuth)
+        │   ├─ chat-ingest/   │      ├─ A:  Claude Sonnet (Max OAuth)
+        │   └─ dashboard/     │      ├─ B:  Claude Haiku  (Max OAuth)
+        │                     │      └─ C:  Local Qwen    (Ollama)
+        │                     │
+        │  whisper.cpp        │    Remote Access:
+        │  (transcription)    │      CDP Chrome → 127.0.0.1:9222
+        │                     │      Clawdbot GW → 127.0.0.1:18789
         └─────────────────────┘
 ```
 

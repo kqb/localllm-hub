@@ -1,6 +1,7 @@
-const { chat } = require('../../shared/ollama');
+const { chat, generate } = require('../../shared/ollama');
 const config = require('../../shared/config');
 const logger = require('../../shared/logger');
+const { buildRouterPrompt } = require('../../shared/router-prompt');
 
 async function rateUrgency(text) {
   const prompt = `Rate the urgency of this message on a scale of 1-5:
@@ -76,4 +77,34 @@ API tasks: complex analysis, research required, multi-step reasoning`;
   }
 }
 
-module.exports = { rateUrgency, routeTask };
+const VALID_ROUTES = ['gemini_3_pro', 'claude_opus', 'claude_sonnet', 'claude_haiku', 'local_qwen'];
+const VALID_PRIORITIES = ['high', 'medium', 'low'];
+
+async function routeToModel(prompt) {
+  const systemPrompt = buildRouterPrompt(prompt);
+
+  try {
+    const response = await generate(config.models.triage, systemPrompt, {
+      format: 'json',
+    });
+
+    const content = response.response.trim();
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      const result = JSON.parse(jsonMatch[0]);
+      return {
+        route: VALID_ROUTES.includes(result.route) ? result.route : 'claude_sonnet',
+        reason: result.reason || 'No reason provided',
+        priority: VALID_PRIORITIES.includes(result.priority) ? result.priority : 'medium',
+      };
+    }
+
+    return { route: 'claude_sonnet', reason: 'Failed to parse router output', priority: 'medium' };
+  } catch (error) {
+    logger.error('Model routing failed:', error.message);
+    return { route: 'claude_sonnet', reason: 'Error during routing', priority: 'medium' };
+  }
+}
+
+module.exports = { rateUrgency, routeTask, routeToModel };

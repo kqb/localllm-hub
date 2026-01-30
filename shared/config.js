@@ -7,8 +7,8 @@ const OVERRIDES_PATH = join(__dirname, '..', 'config.local.json');
 const defaults = {
   models: {
     triage: 'qwen2.5:7b',
-    code: 'qwen2.5-coder:32b',
-    reasoning: 'deepseek-r1:32b',
+    code: 'qwen2.5-coder:14b',
+    reasoning: 'deepseek-r1:14b',
     embed: 'mxbai-embed-large',      // 1024-dim
     embedFast: 'nomic-embed-text',   // 768-dim
   },
@@ -29,8 +29,8 @@ const defaults = {
   },
   embedding: {
     dimension: 1024,
-    chunkSize: 500,
-    chunkOverlap: 100,
+    chunkSize: 1500,
+    chunkOverlap: 300,
   },
   watcher: {
     pollInterval: 5000,

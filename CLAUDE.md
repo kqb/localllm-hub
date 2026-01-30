@@ -142,17 +142,25 @@ const config = {
 
 ---
 
-## Ollama Model Budget
+## Ollama Model Budget (Local Tier)
 
-Only 1-2 models fit in memory simultaneously (~27GB available):
+Only 1-2 models fit in memory simultaneously (~27GB available). Target: downsize 32B → 14B.
 
-| Model | Size | Use Case | Notes |
-|-------|------|----------|-------|
-| mxbai-embed-large | 669MB | Embeddings (1024-dim) | Always-on for search |
-| qwen2.5:7b | 4.7GB | Classification, triage, urgency | Fast inference |
+| Model | Size | Role | Status |
+|-------|------|------|--------|
+| mxbai-embed-large | 669MB | Embeddings (1024-dim) | Always loaded |
+| qwen2.5:7b | 4.7GB | Router + Classification + Triage | Always loaded |
 | nomic-embed-text | 274MB | Fallback embeddings (768-dim) | Lighter alternative |
-| qwen2.5-coder:32b | 19GB | Code tasks | Loads on demand, unloads others |
-| deepseek-r1:32b | 19GB | Complex reasoning | Loads on demand, unloads others |
+| qwen2.5-coder:14b | ~9GB | Code tasks (local fallback) | On-demand (target) |
+| deepseek-r1:14b | ~9GB | Complex reasoning (local) | On-demand (target) |
+| ~~qwen2.5-coder:32b~~ | ~~19GB~~ | ~~Code tasks~~ | Deprecated — too large |
+| ~~deepseek-r1:32b~~ | ~~19GB~~ | ~~Complex reasoning~~ | Deprecated — too large |
+
+**Total always-on:** ~5.4GB (embeddings + router). **Headroom:** ~22GB.
+
+**Remote models (no Ollama, no VRAM cost):**
+- Gemini 3 Pro — via CDP browser automation (free, authenticated browser)
+- Claude Opus/Sonnet/Haiku — via Max subscription OAuth (flat cost)
 
 **Auto-unload:** Ollama unloads models after 5min idle (`OLLAMA_KEEP_ALIVE=5m`).
 **Concurrency:** Avoid parallel inference with different models — causes model swapping thrash.
@@ -539,26 +547,41 @@ embedding: {
 | qwen2.5-coder:14b | ~9GB | Code tasks | On-demand |
 | deepseek-r1:14b | ~9GB | Complex reasoning | On-demand |
 
+**Total always-on:** ~5.4GB. **Headroom:** ~22GB for on-demand models + OS.
+
+**Recommended Qwen router context:** `num_ctx: 32768` (32k) — allows reading large local files without crashing.
+
 **Breathing room needed for:**
 - Vector DB cache in RAM (0.1s queries vs 5s disk reads)
 - Chat ingest watcher daemon (background JSONL parsing)
 - Router model always warm (instant triage, no cold-start)
 
-### 3. Route Switching: Triage Module Activation
+### 3. Route Switching: 5-Tier "All-Star" Architecture
 
-The triage package exists but isn't wired into Clawdbot. Activate it to route prompts to the cheapest capable model.
+The triage package exists but isn't wired into Clawdbot. Activate it with a 5-tier routing table that leverages best-in-class models from multiple providers.
 
-**Three routing buckets:**
+**Five routing tiers:**
 
-| Bucket | Intent Signals | Routed To | Cost |
-|--------|---------------|-----------|------|
-| **High Ops** | Architect, refactor, debug complex, security audit, multi-file | Claude Opus | $$$ |
-| **Low Ops** | Draft email, fix typo, summarize, simple Q&A, translate | Sonnet / Haiku / Gemini Flash | $ |
-| **Local Ops** | Search notes, list files, classify email, rate urgency | Qwen 7B (local) | Free |
+| Tier | Model | Role | Best Use Case | Cost |
+|------|-------|------|---------------|------|
+| S1 | Gemini 3 Pro | The Visionary | Deep reasoning, 1M+ context, strategic planning | Free (browser) |
+| S2 | Claude 4.5 Opus | The Auditor | Critical execution, security audits, production code | Max sub |
+| A | Claude Sonnet | The Engineer | Coding loop: features, bugs, tests (80% of work) | Max sub |
+| B | Claude Haiku | The Analyst | Triage, summarization, data extraction, fast Q&A | Max sub |
+| C | Qwen 2.5 14B | The Intern | Note search, file discovery, classification, routing | Free (local) |
 
-**Implementation:** Qwen 7B classifies every incoming prompt → JSON output `{"route": "high_ops"|"low_ops"|"local_ops", "reason": "..."}` → Clawdbot routes to appropriate model.
+**Provider access (NO API keys):**
+- **Gemini 3 Pro:** CDP browser automation via `~/clawd/skills/gemini-chat/gemini-chat.mjs`. Connects to authenticated Chrome on `127.0.0.1:9222`. Requires `~/scripts/start-chrome-cdp.sh` running. No Google API key needed — hijacks the authenticated browser session.
+- **Claude (all tiers):** Claude Max subscription via OAuth tokens in `~/.clawdbot/agents/main/agent/auth-profiles.json`. Clawdbot manages token refresh. No `ANTHROPIC_API_KEY`.
+- **Qwen / Embeddings:** Ollama local at `http://127.0.0.1:11434`. Always available, zero cost.
 
-**Latency budget:** ~100ms for local classification. Saves $0.50+ per simple query redirected away from Opus.
+**Two-phase planning:** Strategic planning (explorative, "how should we...") → Gemini 3 Pro. Execution planning (definitive, "create implementation plan") → Claude Opus. See ARCHITECTURE.md for the full handoff workflow.
+
+**Fallback chain:** Haiku→Sonnet, Sonnet→Gemini, Opus→Gemini, Gemini→Opus (with context warning).
+
+**Implementation:** Qwen 14B classifies every incoming prompt → JSON output `{"route": "gemini_3_pro"|"claude_opus"|"claude_sonnet"|"claude_haiku"|"local_qwen", "reason": "...", "priority": "high|medium|low"}` → Clawdbot routes to appropriate model.
+
+**Latency budget:** ~100ms for local classification. All Claude tiers are flat-cost (Max subscription). Gemini is free (browser session).
 
 ### 4. Librarian Pre-Fetch (Don't Make Claude Search)
 
@@ -582,34 +605,115 @@ User query → Qwen 7B (local) → semantic search + grep → inject context →
 3. Injects top results into the Claude prompt as pre-fetched context
 4. Claude just reads and reasons — never calls search tools
 
-### 5. Context Window Hygiene (200k Hard Limit)
+### 4b. Pre-Processing Compression Layer (For Planning Tasks)
 
-Claude's 200k is a hard wall (400 error at 200,001). Manage it aggressively.
+When routing to Claude Opus for planning, compress source files first so Opus can "see" 50+ files within its 200k limit.
 
-**Flush trigger:** 190k (95%). Keep 10k buffer for model output (reasoning chain + code).
+**Approach:** Use a local model (Qwen or Haiku via Clawdbot gateway) to distill each source file into an architectural summary: exported interfaces, function signatures, imports, 1-sentence responsibility. Omit all function bodies.
 
-**Context structure:**
-- **Static block (cached):** AGENTS.md + TOOLS.md + MEMORY.md (~7k tokens, cached by Anthropic)
-- **Dynamic block:** Recent chat history + user query + pre-fetched context
+**Token savings:** ~90% compression (500-line file: ~2,000 tokens → ~200 tokens summary).
 
-**Compaction strategy:** Clawdbot handles automatic compaction. Prevent bloat by:
-- Truncating long tool results (500 char max in context, full result in separate retrieval)
-- Not re-injecting entire file contents when a summary suffices
-- Moving resolved topics to MEMORY.md proactively
+**For context-heavy tasks that exceed even Opus's limits:** Route to Gemini 3 Pro via CDP browser automation — it handles 1M+ tokens natively.
+
+**Important:** The original `pre_process_planning.js` from the Gemini discussion uses `@anthropic-ai/sdk` with an API key. For our setup, use one of:
+- Ollama local models via `http://127.0.0.1:11434` (zero cost, use Qwen for distillation)
+- Clawdbot's gateway at `http://127.0.0.1:18789` (routes through Max subscription)
+
+### 5. Context Window Hygiene (Per-Model Limits)
+
+Each model has different context budgets. Manage them accordingly.
+
+**Per-model context limits:**
+
+| Model | Context Window | Flush Trigger | Buffer | Notes |
+|-------|---------------|---------------|--------|-------|
+| Gemini 3 Pro | 1M–2M+ | 90% (~900k) | ~100k | Almost never needs flushing in a workday |
+| Claude Opus | 200k (hard wall) | 95% (190k) | 10k | 400 error at 200,001. Flush earlier than Gemini. |
+| Claude Sonnet | 200k | 90% (180k) | 20k | Keep extra buffer; Sonnet is sensitive to prefill bloat |
+| Claude Haiku | 200k (safe: 100k) | 80% (80k) | 20k | Performance degrades past 100k. Keep lean. |
+| Qwen 14B (local) | 32k | N/A | N/A | Set `num_ctx: 32768`. Router prompts are small. |
+
+**Claude prompt caching (critical for Opus cost):**
+- Enable `cache_control: {"type": "ephemeral"}` on the System Prompt and Memory Bank injection
+- Structure: **Static block first** (AGENTS.md + TOOLS.md + MEMORY.md, ~7k tokens) → **Dynamic block** (chat history + user query + pre-fetched context)
+- If the first ~50k tokens don't change between turns, Anthropic caches them at ~10% cost
+- Reduces Time-to-First-Token from ~3s to ~0.5s
+
+**Compaction strategy — "Distill to Bank" (not "Search and Save"):**
+- **Bad:** Asking the model to `memory_search` during a flush — the model is already context-saturated and prone to hallucination
+- **Good:** Ask the model to dump a summary of recent decisions + pending TODOs to `memory/journal-YYYY-MM-DD.md`. Let the ingestion watcher handle indexing.
+- Clawdbot handles automatic compaction. Prevent bloat by:
+  - Truncating long tool results (500 char max in context, full result in separate retrieval)
+  - Not re-injecting entire file contents when a summary suffices
+  - Moving resolved topics to MEMORY.md proactively ("Distill to Bank")
+
+**Clawdbot "amnesia" prevention:**
+- Set `memory_strategy` to `buffer` or `rolling_window` (not `summary_buffer` which compresses aggressively)
+- Disable `auto_summarize` if available — let the model see raw conversation history
+- When using Gemini 3 Pro (1M+ context), raise the context limit setting to match the model's actual capacity. A 200k limit on a 1M model triggers premature flushing.
+
+### 5b. Per-Model Tuning Notes
+
+**Sonnet (80% of workload):**
+- Prefill-sensitive: don't dump entire MEMORY.md. Use RAG to inject only top 2 relevant snippets.
+- SOTA at tool calling (often better than Opus). Hard-lock agent loops (write→run→error→fix) to Sonnet.
+- Context limit: 180k safe.
+
+**Opus (critical tasks):**
+- Prompt caching is essential (see above). Without it, cost and latency are 5x Sonnet.
+- Use for "finish" tasks: final production code, security refactors, strict specs.
+- Context limit: 190k (hard). Never exceed.
+
+**Haiku (triage/data):**
+- XML-tagged prompts dramatically improve adherence. Wrap in `<system_instruction>`, `<constraints>`, `<output_schema>`.
+- Very literal: send explicit commands ("List 3 bugs"), not vague requests ("Check this code").
+- Context limit: 100k safe (supports 200k but degrades).
+
+**Gemini 3 Pro (planning/research):**
+- Adaptive thinking: default to `thinking_level="low"` for speed. Only send `thinking_level="high"` when user triggers planning keywords ("Plan", "Architect", "Deeply analyze").
+- Disable streaming for Deep Think mode (`stream: false`) — the model needs to complete its thought chain before outputting.
+- Safety filters may block code-security discussions. Set safety settings to permissive if available.
+- **Explorative reasoning style:** considers multiple angles. Best for "I don't know where to start" tasks.
+
+**Gemini 3 Pro vs Claude Opus (Tie-Breaker):**
+
+| Dimension | Gemini 3 Pro | Claude Opus | Use |
+|-----------|-------------|-------------|-----|
+| Reasoning style | Explorative (multiple angles) | Linear & rigid (follows instructions exactly) | Gemini to start, Opus to finish |
+| Context window | 1M+ (reads entire repos) | 200k hard limit | Gemini for large context |
+| Code safety | Creative (may suggest novel/risky approaches) | Conservative (enterprise-standard) | Opus for production |
+| Cost | Free (browser session) | Flat (Max subscription) | Both effectively free |
 
 ---
 
 ## Future Roadmap
 
-- [ ] **Activate route switching** — Wire triage into Clawdbot prompt pipeline
+### Routing & Multi-Model ("All-Star" Architecture)
+- [ ] **Activate 5-tier route switching** — Wire Qwen router into Clawdbot prompt pipeline with Gemini/Opus/Sonnet/Haiku/Local tiers
+- [ ] **Gemini CDP integration** — Ensure `start-chrome-cdp.sh` auto-launches on boot, integrate `gemini-chat.mjs` into routing pipeline
+- [ ] **Two-phase planning handoff** — Gemini strategic planning → Opus execution planning → Sonnet implementation
+- [ ] **Cross-provider fallback chain** — Haiku→Sonnet→Gemini, Opus→Gemini, Gemini→Opus
+- [ ] **Pre-processing compression layer** — Distill source files via local Qwen before sending to Opus for planning
+- [ ] **Haiku XML system prompts** — Deploy `system_haiku.xml` template for structured JSON output
+- [ ] **Router prompt tuning** — Test Qwen 14B router with verification prompts, tune decision tree
+
+### Context & Memory Optimization
 - [ ] **Librarian agent** — Pre-fetch context before Claude calls
 - [ ] **Chunk size migration** — Increase to 1500 chars, reindex all sources
-- [ ] **Model downsize** — Pull 14B variants, update config, test quality
 - [ ] **Always-warm router** — Keep Qwen 7B loaded via OLLAMA_KEEP_ALIVE or preload cron
+
+### Model Budget
+- [ ] **Model downsize** — Pull 14B variants (`qwen2.5-coder:14b`, `deepseek-r1:14b`), update config, test quality
+- [ ] **Qwen router context** — Set `num_ctx: 32768` for local model
+
+### Infrastructure
 - [ ] HTTP API server mode (expose localllm-hub as REST for non-Node consumers)
 - [ ] Embedding cache (skip re-embedding unchanged files on reindex)
 - [ ] Streaming mode for long-running generate/chat operations
 - [ ] Metrics endpoint (latency/throughput stats)
+- [ ] Token economics dashboard — Track cost savings from local routing per session
+
+### Pipelines
 - [ ] Email triage pipeline (classify → urgency → route → notify)
 - [ ] Voice memo ingestion pipeline (transcribe → embed → search)
 
@@ -818,6 +922,59 @@ Edit via: Dashboard UI (`/api/clawdbot/config`) or `clawdbot gateway config.patc
 }
 ```
 
+**Route-specific config (for 5-tier routing):** When route switching is active, the router output determines which model handles the request. The Clawdbot gateway must map route names to provider configs:
+
+```jsonc
+{
+  "routes": {
+    "gemini_3_pro": {
+      "provider": "cdp_browser",              // CDP browser automation
+      "script": "~/clawd/skills/gemini-chat/gemini-chat.mjs",
+      "cdp_port": 9222,
+      "thinking_level": "adaptive",           // low by default, high for PLAN/ARCHITECT keywords
+      "context_limit": 1000000
+    },
+    "claude_opus": {
+      "provider": "anthropic",
+      "model_id": "claude-opus-4-5",
+      "auth_profile": "anthropic:claude-cli",  // OAuth from auth-profiles.json
+      "context_limit": 190000,
+      "cache_control": true                    // Enable prompt caching (static block)
+    },
+    "claude_sonnet": {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-5",
+      "auth_profile": "anthropic:claude-cli",
+      "context_limit": 180000
+    },
+    "claude_haiku": {
+      "provider": "anthropic",
+      "model_id": "claude-3-5-haiku-20241022",
+      "auth_profile": "anthropic:claude-cli",
+      "context_limit": 100000,
+      "system_prompt_format": "xml"            // Use XML-tagged system prompts for Haiku
+    },
+    "local_qwen": {
+      "provider": "ollama_local",
+      "model_id": "qwen2.5:14b",
+      "context_limit": 32000
+    }
+  },
+  "fallbacks": {
+    "claude_haiku": ["claude_sonnet"],
+    "claude_sonnet": ["gemini_3_pro"],
+    "claude_opus": ["gemini_3_pro"],
+    "gemini_3_pro": ["claude_opus"]
+  }
+}
+```
+
+**Amnesia prevention (critical for congruent experience):**
+- Clawdbot's default `memory_strategy` may aggressively summarize conversation history. Set to `buffer` or `rolling_window` instead of `summary_buffer`.
+- Disable `auto_summarize` — let the model see raw conversation history.
+- When swapping between Gemini (1M+) and Claude (200k), adjust the context limit dynamically. A 200k limit on a 1M-capable model triggers premature flushing and "amnesia."
+- The flush prompt should **not** ask the model to run tools (memory_search) while context-saturated. Use a passive "dump your working state" approach instead.
+
 **`channels`** — Messaging surfaces:
 ```jsonc
 {
@@ -880,6 +1037,11 @@ Key custom skills:
 |-------|---------|
 | `claude-code-wingman` | Spawn Claude Code in tmux (uses work API, saves budget) |
 | `coding-orchestration` | Multi-agent coding with git worktrees |
+| `gemini-chat` | ★ Multi-turn Gemini conversation via CDP browser automation (no API key) |
+| `macos-browser-automation` | Peekaboo + AppleScript for OS-level browser control |
+| `verify-on-browser` | Chrome DevTools Protocol (CDP) MCP server for headless browser |
+| `research` | Gemini Deep Research mode via CDP + AppleScript |
+| `clawdbot-chrome-extension` | Controls user's Chrome tabs via extension relay (port 18792) |
 | `self-improving-agent` | Captures learnings, errors, corrections |
 | `local-llm-optimization` | Model selection guide for M4 Max |
 | `clawdbot-cron` | Scheduled tasks and reminders |
