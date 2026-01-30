@@ -227,6 +227,22 @@
   .alert-title { font-weight: 600; font-size: 14px; }
   .alert-detail { font-size: 13px; color: var(--text2); margin-left: auto; }
 
+  /* Embedding Explorer */
+  #embed-canvas {
+    display: block;
+    margin: 0 auto;
+    border-radius: var(--radius);
+  }
+  #embed-detail {
+    font-family: monospace;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  #embed-detail-file {
+    color: var(--accent);
+    font-size: 0.95em;
+  }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
@@ -300,6 +316,23 @@
       </div>
     </div>
     <div id="search-results" class="results"></div>
+  </section>
+
+  <!-- Embedding Explorer -->
+  <section class="card" id="embeddings-card">
+    <h2>🔮 Embedding Explorer</h2>
+    <div style="margin-bottom: 1rem;">
+      <label>Sample size: <input type="number" id="embed-limit" value="200" min="50" max="500" step="50" style="width: 80px;"></label>
+      <button class="btn" onclick="loadEmbeddings()">Load</button>
+      <span id="embed-status" style="margin-left: 1rem; color: var(--text2);"></span>
+    </div>
+    <div id="embeddings-content">
+      <canvas id="embed-canvas" width="800" height="600" style="border: 1px solid var(--border); background: var(--bg); cursor: crosshair;"></canvas>
+      <div id="embed-detail" style="margin-top: 1rem; padding: 0.5rem; background: var(--bg2); border-radius: var(--radius); min-height: 80px; display: none;">
+        <strong id="embed-detail-file"></strong>
+        <pre id="embed-detail-text" style="margin-top: 0.5rem; white-space: pre-wrap; font-size: 0.9em; color: var(--text2);"></pre>
+      </div>
+    </div>
   </section>
 
   <!-- Jobs & Packages Row -->
@@ -2285,9 +2318,117 @@ async function loadAlerts() {
   }
 }
 
+// --- Embedding Explorer ---
+let embeddingSamples = [];
+let embeddingProjection = [];
+
+async function loadEmbeddings() {
+  const limit = parseInt($('embed-limit').value) || 200;
+  $('embed-status').textContent = 'Loading...';
+
+  try {
+    const res = await fetch(API + `/api/embeddings/sample?limit=${limit}`);
+    const data = await res.json();
+
+    if (data.error) {
+      $('embed-status').textContent = `Error: ${data.error}`;
+      return;
+    }
+
+    embeddingSamples = data.samples;
+
+    // Simple 2D projection: pick two random dimensions
+    const dim1 = Math.floor(Math.random() * embeddingSamples[0].embedding.length);
+    const dim2 = Math.floor(Math.random() * embeddingSamples[0].embedding.length);
+
+    embeddingProjection = embeddingSamples.map(s => ({
+      x: s.embedding[dim1],
+      y: s.embedding[dim2],
+      file: s.file,
+      text: s.text,
+    }));
+
+    // Normalize to canvas coordinates
+    const xVals = embeddingProjection.map(p => p.x);
+    const yVals = embeddingProjection.map(p => p.y);
+    const xMin = Math.min(...xVals), xMax = Math.max(...xVals);
+    const yMin = Math.min(...yVals), yMax = Math.max(...yVals);
+
+    const canvas = $('embed-canvas');
+    const w = canvas.width, h = canvas.height;
+    const padding = 40;
+
+    embeddingProjection.forEach(p => {
+      p.canvasX = padding + ((p.x - xMin) / (xMax - xMin)) * (w - 2 * padding);
+      p.canvasY = padding + ((p.y - yMin) / (yMax - yMin)) * (h - 2 * padding);
+    });
+
+    drawEmbeddings();
+
+    $('embed-status').textContent = `Loaded ${embeddingSamples.length} points (dims ${dim1}, ${dim2})`;
+  } catch (err) {
+    $('embed-status').textContent = `Error: ${err.message}`;
+  }
+}
+
+function drawEmbeddings() {
+  const canvas = $('embed-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Clear
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg');
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Group by file for color coding
+  const fileColors = {};
+  const uniqueFiles = [...new Set(embeddingProjection.map(p => p.file))];
+  uniqueFiles.forEach((file, i) => {
+    const hue = (i * 137.5) % 360; // Golden angle for color distribution
+    fileColors[file] = `hsl(${hue}, 70%, 60%)`;
+  });
+
+  // Draw points
+  embeddingProjection.forEach(p => {
+    ctx.fillStyle = fileColors[p.file];
+    ctx.beginPath();
+    ctx.arc(p.canvasX, p.canvasY, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Canvas click handler
+if ($('embed-canvas')) {
+  $('embed-canvas').addEventListener('click', (e) => {
+    const canvas = $('embed-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    // Find nearest point
+    let nearest = null;
+    let minDist = Infinity;
+
+    for (const p of embeddingProjection) {
+      const dist = Math.sqrt((p.canvasX - clickX) ** 2 + (p.canvasY - clickY) ** 2);
+      if (dist < minDist && dist < 15) { // Within 15px
+        minDist = dist;
+        nearest = p;
+      }
+    }
+
+    if (nearest) {
+      $('embed-detail').style.display = 'block';
+      $('embed-detail-file').textContent = nearest.file;
+      $('embed-detail-text').textContent = nearest.text;
+    } else {
+      $('embed-detail').style.display = 'none';
+    }
+  });
+}
+
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadEmbeddings()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);

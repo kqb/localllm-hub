@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "echo 'Run tests in individual packages'",
-    "verify": "node -e \"require('./packages/embeddings'); require('./packages/classifier'); require('./packages/triage'); require('./packages/search'); require('./packages/transcriber'); console.log('All packages load successfully')\""
+    "verify": "node -e \"require('./packages/embeddings'); require('./packages/classifier'); require('./packages/triage'); require('./packages/search'); require('./packages/transcriber'); require('./packages/librarian'); console.log('All packages load successfully')\""
   },
   "devDependencies": {
     "ollama": "^0.5.0",
