@@ -383,6 +383,12 @@
     <div id="pipelines-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
+  <!-- Context Pipeline Hook -->
+  <section class="card" id="context-pipeline-card">
+    <h2>🔗 Context Pipeline Hook</h2>
+    <div id="context-pipeline-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
   <!-- Clawdbot Behavior -->
   <section class="card" id="clawdbot-card">
     <h2>🤖 Clawdbot Memory Behavior</h2>
@@ -2698,14 +2704,99 @@ async function loadPipelineHistory() {
   }
 }
 
+// --- Context Pipeline Hook ---
+async function loadContextPipeline() {
+  try {
+    const [statusRes, activityRes] = await Promise.all([
+      fetch(API + '/api/context-pipeline/hook-status'),
+      fetch(API + '/api/context-pipeline/activity'),
+    ]);
+    const status = await statusRes.json();
+    const activity = await activityRes.json();
+
+    let html = '';
+
+    // Connection status indicator
+    const isActive = status.registered && status.callCount > 0;
+    const statusColor = isActive ? 'green' : status.registered ? 'yellow' : 'red';
+    const statusText = isActive ? 'Active' : status.registered ? 'Registered (No calls yet)' : 'Inactive';
+
+    html += '<div style="margin-bottom:16px">';
+    html += '<div class="kv" style="align-items:center">';
+    html += '<span class="k">Status</span>';
+    html += '<span style="display:flex;align-items:center;gap:8px">';
+    html += `<span style="width:8px;height:8px;border-radius:50%;background:var(--${statusColor})"></span>`;
+    html += `<span style="color:var(--${statusColor})">${statusText}</span>`;
+    html += '</span>';
+    html += '</div>';
+
+    if (status.lastCall) {
+      const lastCallTime = new Date(status.lastCall).toLocaleString();
+      html += '<div class="kv"><span class="k">Last Call</span><span style="font-size:12px">' + escHtml(lastCallTime) + '</span></div>';
+    }
+
+    html += '<div class="kv"><span class="k">Total Calls</span><span>' + (status.callCount || 0) + '</span></div>';
+    html += '</div>';
+
+    // Activity log
+    html += '<h3 style="margin-bottom:10px">Recent Activity</h3>';
+    if (activity.length === 0) {
+      html += '<div class="empty">No activity yet</div>';
+    } else {
+      html += '<div style="max-height:300px;overflow-y:auto">';
+      html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+      html += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left">';
+      html += '<th style="padding:6px">Time</th>';
+      html += '<th style="padding:6px">Query</th>';
+      html += '<th style="padding:6px">RAG</th>';
+      html += '<th style="padding:6px">Route</th>';
+      html += '<th style="padding:6px">Time</th>';
+      html += '</tr></thead>';
+      html += '<tbody>';
+
+      for (const log of activity) {
+        const time = new Date(log.timestamp).toLocaleTimeString();
+        const query = escHtml(log.query || '');
+        const ragCount = log.ragCount || 0;
+        const route = log.route ? escHtml(log.route) : '<span style="color:var(--text2)">—</span>';
+        const timeMs = log.timeMs || 0;
+
+        html += '<tr style="border-bottom:1px solid var(--bg3)">';
+        html += '<td style="padding:6px;color:var(--text2)">' + time + '</td>';
+        html += '<td style="padding:6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + query + '</td>';
+        html += '<td style="padding:6px">' + ragCount + '</td>';
+        html += '<td style="padding:6px">' + route + '</td>';
+        html += '<td style="padding:6px;color:var(--text2)">' + timeMs + 'ms</td>';
+        html += '</tr>';
+      }
+
+      html += '</tbody></table>';
+      html += '</div>';
+    }
+
+    html += '<div style="margin-top:12px;display:flex;gap:8px">';
+    html += '<button class="btn sm outline" onclick="loadContextPipeline()">↻ Refresh</button>';
+    html += '</div>';
+
+    /* Safety: This dashboard is a localhost-only admin tool (loopback interface, no authentication).
+       All data comes from local API endpoints (context-pipeline activity log). All user-generated
+       content (query strings, route names) is escaped via escHtml() for defense-in-depth. */
+    $('context-pipeline-content').innerHTML = html;
+  } catch (e) {
+    $('context-pipeline-content').innerHTML = '<div class="empty" style="color:var(--red)">Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
   // Refresh agent list every 10s
   setInterval(loadAgents, 10000);
+  // Refresh context pipeline every 30s
+  setInterval(loadContextPipeline, 30000);
   // Refresh full status every 60s
   setInterval(() => { loadStatus(); loadJobs(); loadPipelines(); loadDaemons(); loadAlerts(); }, 60000);
   // Refresh model manager and budget every 30s

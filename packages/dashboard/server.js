@@ -321,6 +321,129 @@ app.post('/api/pipelines/voice-memo', async (req, res) => {
   }
 });
 
+// --- Context Pipeline (Clawdbot integration) ---
+
+// Helper: map localllm route names to Clawdbot model strings
+function mapRouteToClawdbotModel(route) {
+  const mapping = {
+    'gemini_3_pro': 'anthropic/claude-opus-4-5',  // TODO: Replace with Google AI SDK when available
+    'claude_opus': 'anthropic/claude-opus-4-5',
+    'claude_sonnet': 'anthropic/claude-sonnet-4-5',
+    'claude_haiku': 'anthropic/claude-3-5-haiku-latest',
+    'local_qwen': null,  // Local-only, not available in Clawdbot
+  };
+  return mapping[route] || null;
+}
+
+// Activity log storage (in-memory, last 100 calls)
+const contextPipelineActivity = [];
+const MAX_ACTIVITY_LOG = 100;
+
+app.post('/api/context-pipeline/enrich', async (req, res) => {
+  const { message, sessionId, options } = req.body;
+  if (!message) return res.status(400).json({ error: 'Missing message' });
+
+  try {
+    const { assembleContext } = require('../context-pipeline');
+    const result = await assembleContext(message, sessionId || 'clawdbot-main', options || {});
+
+    // Return only what Clawdbot needs — not the full assembled prompt
+    const enrichment = {
+      // RAG context formatted as text block for injection
+      ragContext: result.ragContext.length > 0
+        ? result.ragContext
+            .map((r, i) => `[${i + 1}] (${r.source}, score: ${r.score.toFixed(2)})\n${r.text}`)
+            .join('\n\n---\n\n')
+        : null,
+
+      // Route suggestion
+      routeSuggestion: result.routeDecision
+        ? {
+            route: result.routeDecision.route,
+            reason: result.routeDecision.reason,
+            priority: result.routeDecision.priority,
+            // Map route names to Clawdbot model identifiers
+            clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
+          }
+        : null,
+
+      // System notes (wingman completions, etc.)
+      systemNotes: result.systemNotes.length > 0
+        ? result.systemNotes.join('\n')
+        : null,
+
+      // Metadata for dashboard stats
+      metadata: {
+        assemblyTimeMs: result.metadata.assemblyTime,
+        ragResultCount: result.ragContext.length,
+        sessionId: result.metadata.sessionId,
+      },
+    };
+
+    // Log activity for dashboard
+    contextPipelineActivity.push({
+      timestamp: new Date().toISOString(),
+      query: message.slice(0, 100),
+      ragCount: result.ragContext.length,
+      route: result.routeDecision?.route || null,
+      timeMs: result.metadata.assemblyTime,
+    });
+    if (contextPipelineActivity.length > MAX_ACTIVITY_LOG) {
+      contextPipelineActivity.shift();
+    }
+
+    res.json(enrichment);
+  } catch (err) {
+    // On error, return empty enrichment (don't block Clawdbot)
+    res.status(200).json({
+      ragContext: null,
+      routeSuggestion: null,
+      systemNotes: null,
+      metadata: { error: err.message },
+    });
+  }
+});
+
+app.post('/api/context-pipeline/persist', async (req, res) => {
+  const { sessionId, userMessage, assistantMessage, model } = req.body;
+  try {
+    const { addMessageToSession } = require('../context-pipeline');
+    if (userMessage) {
+      addMessageToSession(sessionId || 'clawdbot-main', {
+        role: 'user', content: userMessage
+      });
+    }
+    if (assistantMessage) {
+      addMessageToSession(sessionId || 'clawdbot-main', {
+        role: 'assistant', content: assistantMessage, model
+      });
+    }
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.json({ status: 'error', error: err.message });
+  }
+});
+
+app.get('/api/context-pipeline/hook-status', (_req, res) => {
+  try {
+    const { getStats } = require('../context-pipeline');
+    const stats = getStats();
+    res.json({
+      registered: contextPipelineActivity.length > 0,  // Simple heuristic
+      lastCall: contextPipelineActivity.length > 0
+        ? contextPipelineActivity[contextPipelineActivity.length - 1].timestamp
+        : null,
+      callCount: stats.totalCalls,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/context-pipeline/activity', (_req, res) => {
+  res.json(contextPipelineActivity.slice(-20).reverse());  // Last 20, newest first
+});
+
 // --- Daemons ---
 
 const DAEMONS = [
