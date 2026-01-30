@@ -1122,10 +1122,16 @@ app.get('/api/context-monitor', async (_req, res) => {
 
   // 1. Shell out to clawdbot status --json
   const sessionStats = await new Promise((resolve) => {
-    execFile('clawdbot', ['status', '--json'], { timeout: 5000 }, (err, stdout) => {
-      if (err) return resolve({ error: err.message });
+    execFile('/opt/homebrew/bin/clawdbot', ['status', '--json'], { timeout: 30000 }, (err, stdout, stderr) => {
+      // Use stdout even if err is set (clawdbot may write to stdout before exiting)
+      const output = (stdout || '') + (err && !stdout ? '' : '');
+      const trimmed = output.trim();
+      if (!trimmed) return resolve({ error: err ? err.message : 'No output from clawdbot status' });
       try {
-        const parsed = JSON.parse(stdout);
+        // Strip non-JSON prefix lines (e.g. [plugins] log output on stdout)
+        const jsonStart = trimmed.indexOf('{');
+        const cleanOutput = jsonStart >= 0 ? trimmed.slice(jsonStart) : trimmed;
+        const parsed = JSON.parse(cleanOutput);
         const recent = parsed.sessions?.recent?.[0];
         if (!recent) return resolve({ error: 'No recent session' });
         resolve({
