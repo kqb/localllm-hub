@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const { readFileSync, readdirSync, statSync } = require('fs');
 const { join, relative } = require('path');
+const { createHash } = require('crypto');
 const { embed } = require('../../shared/ollama');
 const config = require('../../shared/config');
 const logger = require('../../shared/logger');
@@ -19,6 +20,10 @@ function bufferToEmbedding(buffer) {
     embedding.push(buffer.readFloatLE(i));
   }
   return embedding;
+}
+
+function hashContent(text) {
+  return createHash('sha256').update(text, 'utf-8').digest('hex');
 }
 
 function chunkText(text, filePath) {
@@ -92,10 +97,12 @@ function initDb(dbPath) {
       end_line INTEGER NOT NULL,
       text TEXT NOT NULL,
       embedding BLOB,
+      content_hash TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file);
+    CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(content_hash);
   `);
 
   return db;
@@ -105,6 +112,19 @@ async function indexDirectory(sourceDir, dbPath) {
   logger.info('Indexing memory files to SQLite...');
   const db = initDb(dbPath);
 
+  // Build hash index of existing chunks for cache lookup
+  const existingHashes = new Map();
+  try {
+    const existing = db.prepare('SELECT content_hash, embedding FROM chunks WHERE content_hash IS NOT NULL').all();
+    for (const row of existing) {
+      existingHashes.set(row.content_hash, row.embedding);
+    }
+    logger.debug(`Found ${existingHashes.size} cached embeddings`);
+  } catch (err) {
+    logger.debug(`No existing cache: ${err.message}`);
+  }
+
+  // Clear all chunks (we'll re-insert, but with cached embeddings where possible)
   db.exec('DELETE FROM chunks');
 
   const files = findMarkdownFiles(sourceDir);
@@ -120,47 +140,78 @@ async function indexDirectory(sourceDir, dbPath) {
     allChunks.push(...chunks);
   }
 
-  logger.info(`Created ${allChunks.length} chunks, generating embeddings...`);
+  logger.info(`Created ${allChunks.length} chunks, checking cache...`);
+
+  // Compute hashes and check cache
+  const chunksWithHashes = allChunks.map(chunk => ({
+    ...chunk,
+    hash: hashContent(chunk.text),
+  }));
+
+  let cacheHits = 0;
+  let cacheMisses = 0;
+
+  const chunksNeedingEmbedding = [];
+  const chunksWithEmbeddings = [];
+
+  for (const chunk of chunksWithHashes) {
+    if (existingHashes.has(chunk.hash)) {
+      // Cache hit! Reuse existing embedding
+      chunksWithEmbeddings.push({
+        ...chunk,
+        embedding: existingHashes.get(chunk.hash),
+      });
+      cacheHits++;
+    } else {
+      // Cache miss - need to embed
+      chunksNeedingEmbedding.push(chunk);
+      cacheMisses++;
+    }
+  }
+
+  logger.info(`Cache: ${cacheHits} hits, ${cacheMisses} misses`);
+
+  // Embed cache misses
+  if (chunksNeedingEmbedding.length > 0) {
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < chunksNeedingEmbedding.length; i += BATCH_SIZE) {
+      const batch = chunksNeedingEmbedding.slice(i, Math.min(i + BATCH_SIZE, chunksNeedingEmbedding.length));
+      process.stdout.write(`\r  Embedding ${i + 1}-${i + batch.length}/${chunksNeedingEmbedding.length}`);
+
+      try {
+        const texts = batch.map(c => c.text);
+        const response = await embed(config.models.embed, texts);
+
+        for (let j = 0; j < batch.length; j++) {
+          chunksWithEmbeddings.push({
+            ...batch[j],
+            embedding: embeddingToBuffer(response.embeddings[j]),
+          });
+        }
+      } catch (err) {
+        logger.error(`Error embedding batch: ${err.message}`);
+      }
+    }
+    console.log('');
+  }
+
+  logger.info('Saving to SQLite...');
 
   const insert = db.prepare(`
-    INSERT INTO chunks (file, start_line, end_line, text, embedding)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO chunks (file, start_line, end_line, text, embedding, content_hash)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction((chunks) => {
     for (const chunk of chunks) {
-      insert.run(chunk.file, chunk.startLine, chunk.endLine, chunk.text, chunk.embedding);
+      insert.run(chunk.file, chunk.startLine, chunk.endLine, chunk.text, chunk.embedding, chunk.hash);
     }
   });
 
-  const BATCH_SIZE = 10;
-  const chunksWithEmbeddings = [];
-
-  for (let i = 0; i < allChunks.length; i += BATCH_SIZE) {
-    const batch = allChunks.slice(i, Math.min(i + BATCH_SIZE, allChunks.length));
-    process.stdout.write(`\r  Embedding ${i + 1}-${i + batch.length}/${allChunks.length}`);
-
-    try {
-      const texts = batch.map(c => c.text);
-      const response = await embed(config.models.embed, texts);
-
-      for (let j = 0; j < batch.length; j++) {
-        chunksWithEmbeddings.push({
-          ...batch[j],
-          embedding: embeddingToBuffer(response.embeddings[j])
-        });
-      }
-    } catch (err) {
-      logger.error(`Error embedding batch: ${err.message}`);
-    }
-  }
-
-  console.log('');
-  logger.info('Saving to SQLite...');
   insertMany(chunksWithEmbeddings);
 
   const count = db.prepare('SELECT COUNT(*) as count FROM chunks').get();
-  logger.info(`Saved ${count.count} chunks to ${dbPath}`);
+  logger.info(`Saved ${count.count} chunks to ${dbPath} (${cacheHits} from cache, ${cacheMisses} newly embedded)`);
 
   db.close();
 }
@@ -172,4 +223,5 @@ module.exports = {
   bufferToEmbedding,
   chunkText,
   findMarkdownFiles,
+  hashContent,
 };

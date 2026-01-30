@@ -1,0 +1,12 @@
+{
+  "name": "@localllm/librarian",
+  "version": "1.0.0",
+  "description": "Pre-fetch context from multiple sources for prompt injection",
+  "main": "index.js",
+  "bin": {
+    "localllm-librarian": "./cli.js"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  }
+}

@@ -307,6 +307,35 @@ chat
     db.close();
   });
 
+// Librarian
+program
+  .command('prefetch <query>')
+  .description('Pre-fetch context from memory + chat + telegram')
+  .option('-k, --top-k <number>', 'Results per source', '5')
+  .option('-s, --sources <list>', 'Comma-separated sources', 'memory,chat,telegram')
+  .option('--include-grep', 'Include grep results', false)
+  .option('--format <type>', 'Output format: json|markdown', 'json')
+  .action(async (query, options) => {
+    const { prefetchContext, formatAsMarkdown } = require('./packages/librarian');
+    try {
+      const result = await prefetchContext(query, {
+        topK: parseInt(options.topK),
+        sources: options.sources.split(','),
+        includeGrep: options.includeGrep,
+      });
+
+      if (options.format === 'markdown') {
+        console.log(formatAsMarkdown(result.blocks));
+        console.error(`\n[Fetched ${result.summary.totalResults} blocks in ${result.summary.queryTime}ms]`);
+      } else {
+        console.log(JSON.stringify(result, null, 2));
+      }
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
 // Dashboard
 program
   .command('dashboard')

@@ -189,6 +189,41 @@ app.post('/api/compaction', async (req, res) => {
   }
 });
 
+app.get('/api/embeddings/sample', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 200, 500);
+  try {
+    const Database = require('better-sqlite3');
+    const dbPath = config.paths.searchDb;
+
+    if (!existsSync(dbPath)) {
+      return res.status(404).json({ error: 'Memory database not found. Run reindex first.' });
+    }
+
+    const db = new Database(dbPath, { readonly: true });
+    const chunks = db.prepare('SELECT id, file, text, embedding FROM chunks ORDER BY RANDOM() LIMIT ?').all(limit);
+
+    const samples = chunks.map(chunk => {
+      const embedding = [];
+      const buf = chunk.embedding;
+      for (let i = 0; i < buf.length; i += 4) {
+        embedding.push(buf.readFloatLE(i));
+      }
+
+      return {
+        id: chunk.id,
+        file: chunk.file,
+        text: chunk.text.slice(0, 200), // Truncate for transfer
+        embedding,
+      };
+    });
+
+    db.close();
+    res.json({ samples, count: samples.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/packages', (_req, res) => {
   const pkgs = ['embeddings', 'classifier', 'triage', 'search', 'transcriber', 'chat-ingest'];
   const results = pkgs.map(name => {
