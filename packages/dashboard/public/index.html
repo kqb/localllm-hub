@@ -2736,37 +2736,104 @@ async function loadContextPipeline() {
     }
 
     html += '<div class="kv"><span class="k">Total Calls</span><span>' + (status.callCount || 0) + '</span></div>';
+
+    // Enforce Model Routing toggle
+    html += '<div class="kv" style="align-items:center">';
+    html += '<span class="k">Enforce Model Routing</span>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
+    html += '<input type="checkbox" id="cp-enforce-model" style="accent-color:var(--accent)" onchange="toggleEnforceModel(this.checked)" />';
+    html += '<span style="font-size:12px;color:var(--text2)">Override Clawdbot model per-turn based on route suggestion</span>';
+    html += '</label>';
     html += '</div>';
 
-    // Activity log
-    html += '<h3 style="margin-bottom:10px">Recent Activity</h3>';
+    html += '</div>';
+
+    // Load current enforceModel state
+    try {
+      const cfgRes = await fetch(API + '/api/context-pipeline/config');
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        const enforceEl = document.getElementById('cp-enforce-model');
+        if (enforceEl) enforceEl.checked = cfg.config?.routing?.enforceModel || false;
+      }
+    } catch { /* ignore */ }
+
+    // Route distribution summary
+    if (activity.length > 0) {
+      const routeCounts = {};
+      for (const a of activity) {
+        const r = a.route || 'unknown';
+        routeCounts[r] = (routeCounts[r] || 0) + 1;
+      }
+      const routeColors = {
+        claude_opus: '#e49cff',
+        claude_sonnet: '#7eb8ff',
+        claude_haiku: '#7effb2',
+        local_qwen: '#ffcf7e',
+        unknown: '#888',
+      };
+      html += '<h3 style="margin-bottom:10px">Route Distribution</h3>';
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
+      for (const [route, count] of Object.entries(routeCounts).sort((a,b) => b[1]-a[1])) {
+        const color = routeColors[route] || 'var(--text2)';
+        const pct = Math.round(count / activity.length * 100);
+        html += '<div style="text-align:center;min-width:80px">';
+        html += '<div style="font-size:24px;font-weight:700;color:' + color + '">' + count + '</div>';
+        html += '<div style="font-size:11px;color:var(--text2)">' + escHtml(route) + '</div>';
+        html += '<div style="font-size:10px;color:var(--text2)">' + pct + '%</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+
+      // Avg latency
+      const avgMs = Math.round(activity.reduce((s,a) => s + (a.timeMs||0), 0) / activity.length);
+      html += '<div class="kv"><span class="k">Avg Enrichment</span><span>' + avgMs + 'ms</span></div>';
+    }
+
+    // Activity log — detailed routing view
+    html += '<h3 style="margin-bottom:10px">Recent Routing Decisions</h3>';
     if (activity.length === 0) {
       html += '<div class="empty">No activity yet</div>';
     } else {
-      html += '<div style="max-height:300px;overflow-y:auto">';
+      html += '<div style="max-height:400px;overflow-y:auto">';
       html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
-      html += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left">';
-      html += '<th style="padding:6px">Time</th>';
-      html += '<th style="padding:6px">Query</th>';
-      html += '<th style="padding:6px">RAG</th>';
-      html += '<th style="padding:6px">Route</th>';
-      html += '<th style="padding:6px">Time</th>';
+      html += '<thead><tr style="border-bottom:2px solid var(--border);text-align:left">';
+      html += '<th style="padding:6px 8px">Time</th>';
+      html += '<th style="padding:6px 8px">Query</th>';
+      html += '<th style="padding:6px 8px">RAG</th>';
+      html += '<th style="padding:6px 8px">Route → Model</th>';
+      html += '<th style="padding:6px 8px">Reason</th>';
+      html += '<th style="padding:6px 8px">Latency</th>';
       html += '</tr></thead>';
       html += '<tbody>';
 
+      const routeBadgeColors = {
+        claude_opus: { bg: '#3d2050', fg: '#e49cff' },
+        claude_sonnet: { bg: '#1e3050', fg: '#7eb8ff' },
+        claude_haiku: { bg: '#1e4030', fg: '#7effb2' },
+        local_qwen: { bg: '#403020', fg: '#ffcf7e' },
+      };
+
       for (const log of activity) {
         const time = new Date(log.timestamp).toLocaleTimeString();
-        const query = escHtml(log.query || '');
+        const query = escHtml(log.query || '').replace(/^## Retrieved Context.*$/m, '').trim().slice(0, 60);
         const ragCount = log.ragCount || 0;
-        const route = log.route ? escHtml(log.route) : '<span style="color:var(--text2)">—</span>';
+        const route = log.route || 'unknown';
+        const model = log.clawdbotModel ? log.clawdbotModel.split('/').pop() : '—';
+        const reason = escHtml(log.reason || '—');
         const timeMs = log.timeMs || 0;
+        const badge = routeBadgeColors[route] || { bg: 'var(--bg3)', fg: 'var(--text2)' };
 
         html += '<tr style="border-bottom:1px solid var(--bg3)">';
-        html += '<td style="padding:6px;color:var(--text2)">' + time + '</td>';
-        html += '<td style="padding:6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + query + '</td>';
-        html += '<td style="padding:6px">' + ragCount + '</td>';
-        html += '<td style="padding:6px">' + route + '</td>';
-        html += '<td style="padding:6px;color:var(--text2)">' + timeMs + 'ms</td>';
+        html += '<td style="padding:6px 8px;color:var(--text2);white-space:nowrap">' + time + '</td>';
+        html += '<td style="padding:6px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(log.query || '') + '">' + (query || '<em>system</em>') + '</td>';
+        html += '<td style="padding:6px 8px;text-align:center">' + ragCount + '</td>';
+        html += '<td style="padding:6px 8px;white-space:nowrap">';
+        html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:' + badge.bg + ';color:' + badge.fg + '">' + escHtml(route) + '</span>';
+        html += '<span style="color:var(--text2);font-size:11px;margin-left:6px">→ ' + escHtml(model) + '</span>';
+        html += '</td>';
+        html += '<td style="padding:6px 8px;font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + reason + '">' + reason + '</td>';
+        html += '<td style="padding:6px 8px;color:var(--text2);text-align:right">' + timeMs + 'ms</td>';
         html += '</tr>';
       }
 
@@ -2784,6 +2851,32 @@ async function loadContextPipeline() {
     $('context-pipeline-content').innerHTML = html;
   } catch (e) {
     $('context-pipeline-content').innerHTML = '<div class="empty" style="color:var(--red)">Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+async function toggleEnforceModel(enabled) {
+  try {
+    const resp = await fetch(API + '/api/context-pipeline/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routing: { enforceModel: enabled } }),
+    });
+    if (!resp.ok) throw new Error('Save failed');
+    const statusEl = document.createElement('span');
+    statusEl.style.cssText = 'color:var(--green);font-size:12px;margin-left:8px';
+    statusEl.textContent = enabled ? '✓ Model routing ON' : '✓ Model routing OFF (suggestions only)';
+    const checkbox = document.getElementById('cp-enforce-model');
+    if (checkbox && checkbox.parentNode) {
+      const existing = checkbox.parentNode.querySelector('.save-status');
+      if (existing) existing.remove();
+      statusEl.className = 'save-status';
+      checkbox.parentNode.appendChild(statusEl);
+      setTimeout(() => statusEl.remove(), 3000);
+    }
+  } catch (e) {
+    alert('Failed to toggle: ' + e.message);
+    const checkbox = document.getElementById('cp-enforce-model');
+    if (checkbox) checkbox.checked = !enabled;
   }
 }
 

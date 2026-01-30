@@ -386,6 +386,9 @@ app.post('/api/context-pipeline/enrich', async (req, res) => {
       query: message.slice(0, 100),
       ragCount: result.ragContext.length,
       route: result.routeDecision?.route || null,
+      clawdbotModel: enrichment.routeSuggestion?.clawdbotModel || null,
+      priority: result.routeDecision?.priority || null,
+      reason: result.routeDecision?.reason || null,
       timeMs: result.metadata.assemblyTime,
     });
     if (contextPipelineActivity.length > MAX_ACTIVITY_LOG) {
@@ -442,6 +445,58 @@ app.get('/api/context-pipeline/hook-status', (_req, res) => {
 
 app.get('/api/context-pipeline/activity', (_req, res) => {
   res.json(contextPipelineActivity.slice(-20).reverse());  // Last 20, newest first
+});
+
+app.get('/api/context-pipeline/config', (_req, res) => {
+  try {
+    const fresh = config._reload();
+    res.json({
+      config: fresh.contextPipeline || config.contextPipeline,
+      defaults: config._defaults.contextPipeline,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/context-pipeline/config', (req, res) => {
+  const patch = req.body;
+  if (!patch || typeof patch !== 'object') {
+    return res.status(400).json({ error: 'Invalid config patch' });
+  }
+  try {
+    const { writeFileSync, existsSync } = require('fs');
+    const overridesPath = config._overridesPath;
+
+    let existing = {};
+    if (existsSync(overridesPath)) {
+      try { existing = JSON.parse(require('fs').readFileSync(overridesPath, 'utf-8')); } catch {}
+    }
+
+    // Deep merge patch into contextPipeline
+    if (!existing.contextPipeline) existing.contextPipeline = {};
+    function deepMerge(target, source) {
+      const result = { ...target };
+      for (const key of Object.keys(source)) {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key]) {
+          result[key] = deepMerge(target[key], source[key]);
+        } else {
+          result[key] = source[key];
+        }
+      }
+      return result;
+    }
+    existing.contextPipeline = deepMerge(existing.contextPipeline, patch);
+    writeFileSync(overridesPath, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+
+    // Hot-reload
+    const fresh = config._reload();
+    Object.assign(config, fresh);
+
+    res.json({ status: 'saved', config: existing.contextPipeline });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Daemons ---

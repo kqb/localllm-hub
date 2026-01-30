@@ -55,6 +55,7 @@ const defaults = {
       enabled: true,
       model: 'qwen2.5:7b',
       fallback: 'claude_sonnet',
+      enforceModel: false,
       overrides: {},
     },
     systemNotes: {
