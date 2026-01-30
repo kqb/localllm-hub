@@ -320,6 +320,12 @@
     </div>
   </section>
 
+  <!-- Pipelines -->
+  <section class="card" id="pipelines-card">
+    <h2>⚡ Pipelines</h2>
+    <div id="pipelines-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
   <!-- Clawdbot Behavior -->
   <section class="card" id="clawdbot-card">
     <h2>🤖 Clawdbot Memory Behavior</h2>
@@ -2285,16 +2291,97 @@ async function loadAlerts() {
   }
 }
 
+// --- Pipelines ---
+async function loadPipelines() {
+  try {
+    const res = await fetch(API + '/api/pipelines/stats');
+    const d = await res.json();
+    const pipelines = Object.entries(d);
+
+    if (!pipelines.length) {
+      $('pipelines-content').textContent = 'No pipeline runs yet';
+      return;
+    }
+
+    let html = '<div class="grid grid-2" style="gap:16px">';
+
+    for (const [name, stats] of pipelines) {
+      const icon = name === 'email-triage' ? '📧' : name === 'voice-memo' ? '🎤' : '⚡';
+      const successRate = parseFloat(stats.successRate);
+      const badgeColor = successRate >= 90 ? 'green' : successRate >= 70 ? 'yellow' : 'red';
+
+      html += '<div class="card">';
+      html += '<h3 style="font-size:14px;margin-bottom:8px">' + icon + ' ' + escHtml(name) + '</h3>';
+      html += '<div class="kv"><span class="k">Total Runs</span><span>' + stats.total + '</span></div>';
+      html += '<div class="kv"><span class="k">Successful</span><span class="badge green">' + stats.successful + '</span></div>';
+      html += '<div class="kv"><span class="k">Failed</span><span class="badge ' + (stats.failed > 0 ? 'red' : 'green') + '">' + stats.failed + '</span></div>';
+      html += '<div class="kv"><span class="k">Success Rate</span><span class="badge ' + badgeColor + '">' + stats.successRate + '%</span></div>';
+      html += '<div class="kv"><span class="k">Avg Duration</span><span>' + stats.avgDuration + 'ms</span></div>';
+      html += '<div class="kv"><span class="k">Last Run</span><span style="font-size:12px">' + new Date(stats.lastRun).toLocaleString() + '</span></div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">';
+    html += '<button class="btn sm outline" onclick="loadPipelineHistory()">📜 View History</button>';
+    html += '<button class="btn sm outline" onclick="loadPipelines()">↻ Refresh</button>';
+    html += '</div>';
+
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('pipelines-content').innerHTML = html;
+  } catch (e) {
+    $('pipelines-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function loadPipelineHistory() {
+  const limit = 20;
+  try {
+    const res = await fetch(API + '/api/pipelines/history?limit=' + limit);
+    const history = await res.json();
+
+    if (!history.length) {
+      alert('No pipeline history yet');
+      return;
+    }
+
+    let html = '<div style="max-height:400px;overflow-y:auto;margin-top:12px">';
+    for (const run of history) {
+      const icon = run.success ? '✅' : '❌';
+      const ts = new Date(run.timestamp).toLocaleString();
+      html += '<div style="padding:8px;border-bottom:1px solid var(--border)">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+      html += '<span>' + icon + '</span>';
+      html += '<strong>' + escHtml(run.pipeline) + '</strong>';
+      html += '<span style="color:var(--text2);font-size:12px">' + escHtml(ts) + '</span>';
+      html += '<span style="margin-left:auto;font-size:12px">' + run.duration + 'ms</span>';
+      html += '</div>';
+      if (!run.success) {
+        html += '<div style="color:var(--red);font-size:12px">' + escHtml(run.result.error) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<button class="btn sm outline" style="margin-top:8px" onclick="loadPipelines()">← Back to Stats</button>';
+
+    // Safety: all dynamic values escaped via escHtml(); localhost-only admin tool
+    $('pipelines-content').innerHTML = html;
+
+  } catch (e) {
+    alert('Error loading pipeline history: ' + e.message);
+  }
+}
+
 // --- Init ---
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
+  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts()]);
   connectWs();
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
   // Refresh agent list every 10s
   setInterval(loadAgents, 10000);
   // Refresh full status every 60s
-  setInterval(() => { loadStatus(); loadJobs(); loadDaemons(); loadAlerts(); }, 60000);
+  setInterval(() => { loadStatus(); loadJobs(); loadPipelines(); loadDaemons(); loadAlerts(); }, 60000);
   // Refresh model manager and budget every 30s
   setInterval(() => { loadModelManager(); loadBudget(); }, 30000);
   // Refresh economics every 120s

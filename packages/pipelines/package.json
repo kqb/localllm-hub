@@ -1,0 +1,16 @@
+{
+  "name": "@localllm/pipelines",
+  "version": "1.0.0",
+  "description": "Orchestrated multi-step AI pipelines",
+  "main": "index.js",
+  "keywords": ["pipeline", "orchestration", "automation"],
+  "author": "kqb",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@localllm/classifier": "^1.0.0",
+    "@localllm/triage": "^1.0.0",
+    "@localllm/transcriber": "^1.0.0",
+    "@localllm/embeddings": "^1.0.0",
+    "@localllm/search": "^1.0.0"
+  }
+}

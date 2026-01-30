@@ -152,6 +152,56 @@ app.get('/api/jobs', (_req, res) => {
   }
 });
 
+// --- Pipelines ---
+
+app.get('/api/pipelines/stats', (_req, res) => {
+  try {
+    const { pipelineStats } = require('../pipelines/history');
+    const stats = pipelineStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/pipelines/history', (req, res) => {
+  try {
+    const { pipelineHistory } = require('../pipelines/history');
+    const history = pipelineHistory({
+      pipeline: req.query.pipeline || null,
+      limit: parseInt(req.query.limit) || 50,
+    });
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/pipelines/email-triage', async (req, res) => {
+  try {
+    const { emailTriagePipeline } = require('../pipelines/email-triage');
+    const result = await emailTriagePipeline(req.body.email, {
+      notifyThreshold: req.body.notifyThreshold || 4,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/pipelines/voice-memo', async (req, res) => {
+  try {
+    const { voiceMemoIngestionPipeline } = require('../pipelines/voice-memo');
+    const result = await voiceMemoIngestionPipeline(req.body.audioFile, {
+      retrieveContext: req.body.retrieveContext || false,
+      contextTopK: req.body.contextTopK || 3,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Daemons ---
 
 const DAEMONS = [
