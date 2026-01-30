@@ -170,38 +170,104 @@ async function assembleContext(message, sessionId, options = {}) {
     logger.debug(`Loaded ${result.shortTermHistory.length} messages from history`);
   }
 
-  // 2. RAG context
-  if (pipelineConfig.rag?.enabled) {
-    try {
-      const topK = pipelineConfig.rag.topK || 5;
-      const minScore = pipelineConfig.rag.minScore || 0.3;
-      const sources = pipelineConfig.rag.sources || ['memory', 'chat', 'telegram'];
+  // 2. RAG context + 3. Routing decision (parallel execution)
+  // These operations are independent - routing only needs message text + recent history,
+  // not RAG results. Running in parallel saves ~400-800ms (routing latency).
+  const useParallel = pipelineConfig.parallelExecution !== false;
 
-      const searchResults = await unifiedSearch(messageText, { topK, sources });
-      result.ragContext = searchResults.filter(r => r.score >= minScore);
+  if (useParallel) {
+    const [ragResult, routeResult] = await Promise.allSettled([
+      // RAG search
+      pipelineConfig.rag?.enabled
+        ? (async () => {
+            const ragStart = Date.now();
+            const topK = pipelineConfig.rag.topK || 5;
+            const minScore = pipelineConfig.rag.minScore || 0.3;
+            const sources = pipelineConfig.rag.sources || ['memory', 'chat', 'telegram'];
 
-      logger.debug(`Found ${result.ragContext.length} RAG results (${searchResults.length} total, ${result.ragContext.length} above threshold)`);
-    } catch (err) {
-      logger.error(`RAG search failed: ${err.message}`);
+            const searchResults = await unifiedSearch(messageText, { topK, sources });
+            const filtered = searchResults.filter(r => r.score >= minScore);
+            const ragTime = Date.now() - ragStart;
+
+            logger.debug(`RAG: ${filtered.length}/${searchResults.length} results (${ragTime}ms)`);
+            return filtered;
+          })()
+        : Promise.resolve([]),
+
+      // Routing decision
+      pipelineConfig.routing?.enabled
+        ? (async () => {
+            const routeStart = Date.now();
+            const recentHistory = result.shortTermHistory.slice(-2);
+            const decision = await routeToModel(messageText, recentHistory);
+            const routeTime = Date.now() - routeStart;
+
+            logger.debug(`Route: ${decision.route} (${routeTime}ms)`);
+            return decision;
+          })()
+        : Promise.resolve(null),
+    ]);
+
+    // Extract RAG results
+    if (ragResult.status === 'fulfilled') {
+      result.ragContext = ragResult.value;
+    } else {
+      logger.error(`RAG search failed: ${ragResult.reason?.message || ragResult.reason}`);
       result.ragContext = [];
     }
-  }
 
-  // 3. Routing decision
-  if (pipelineConfig.routing?.enabled) {
-    try {
-      // Pass last 2 messages from history for context (sliding window)
-      // This helps resolve ambiguous references like "Fix it", "Run that"
-      const recentHistory = result.shortTermHistory.slice(-2);
-      result.routeDecision = await routeToModel(messageText, recentHistory);
-      logger.debug(`Route decision: ${result.routeDecision.route} (${result.routeDecision.reason})`);
-    } catch (err) {
-      logger.error(`Routing failed: ${err.message}`);
+    // Extract routing decision
+    if (routeResult.status === 'fulfilled' && routeResult.value) {
+      result.routeDecision = routeResult.value;
+    } else {
+      const errorMsg = routeResult.status === 'rejected'
+        ? `Routing error: ${routeResult.reason?.message || routeResult.reason}`
+        : 'Routing disabled';
+
       result.routeDecision = {
-        route: pipelineConfig.routing.fallback || 'claude_sonnet',
-        reason: `Routing error: ${err.message}`,
+        route: pipelineConfig.routing?.fallback || 'claude_sonnet',
+        reason: errorMsg,
         priority: 'medium',
       };
+      if (routeResult.status === 'rejected') {
+        logger.error(errorMsg);
+      }
+    }
+  } else {
+    // Sequential fallback (original behavior)
+    // 2. RAG context
+    if (pipelineConfig.rag?.enabled) {
+      try {
+        const topK = pipelineConfig.rag.topK || 5;
+        const minScore = pipelineConfig.rag.minScore || 0.3;
+        const sources = pipelineConfig.rag.sources || ['memory', 'chat', 'telegram'];
+
+        const searchResults = await unifiedSearch(messageText, { topK, sources });
+        result.ragContext = searchResults.filter(r => r.score >= minScore);
+
+        logger.debug(`Found ${result.ragContext.length} RAG results (${searchResults.length} total, ${result.ragContext.length} above threshold)`);
+      } catch (err) {
+        logger.error(`RAG search failed: ${err.message}`);
+        result.ragContext = [];
+      }
+    }
+
+    // 3. Routing decision
+    if (pipelineConfig.routing?.enabled) {
+      try {
+        // Pass last 2 messages from history for context (sliding window)
+        // This helps resolve ambiguous references like "Fix it", "Run that"
+        const recentHistory = result.shortTermHistory.slice(-2);
+        result.routeDecision = await routeToModel(messageText, recentHistory);
+        logger.debug(`Route decision: ${result.routeDecision.route} (${result.routeDecision.reason})`);
+      } catch (err) {
+        logger.error(`Routing failed: ${err.message}`);
+        result.routeDecision = {
+          route: pipelineConfig.routing.fallback || 'claude_sonnet',
+          reason: `Routing error: ${err.message}`,
+          priority: 'medium',
+        };
+      }
     }
   }
 

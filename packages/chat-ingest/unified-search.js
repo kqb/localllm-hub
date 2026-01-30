@@ -3,6 +3,7 @@ const { embed } = require('../../shared/ollama');
 const config = require('../../shared/config');
 const logger = require('../../shared/logger');
 const { initDb, bufferToEmbedding } = require('./ingest');
+const { vectorIndex } = require('./vector-index');
 
 function cosineSimilarity(a, b) {
   let dot = 0, nA = 0, nB = 0;
@@ -23,14 +24,35 @@ function cosineSimilarity(a, b) {
  * @returns {Promise<Array<{ source, text, score, meta }>>}
  */
 async function unifiedSearch(query, opts = {}) {
+  const startTime = Date.now();
   const topK = opts.topK || 10;
   const chatDbPath = opts.chatDb || config.paths.chatDb;
   const memoryDbPath = opts.memoryDb || config.paths.searchDb;
   const sources = opts.sources || ['memory', 'chat', 'telegram'];
 
   // Generate query embedding once
+  const embedStart = Date.now();
   const queryEmbedding = await embed(config.models.embed, query);
   const queryVector = queryEmbedding.embeddings[0];
+  const embedTime = Date.now() - embedStart;
+
+  // Use vector index if enabled (fast path)
+  const useVectorIndex = config.contextPipeline?.vectorIndex?.enabled !== false;
+
+  if (useVectorIndex) {
+    try {
+      const searchStart = Date.now();
+      const results = vectorIndex.search(queryVector, topK, 0, sources);
+      const searchTime = Date.now() - searchStart;
+      const totalTime = Date.now() - startTime;
+
+      logger.debug(`VectorIndex search: ${results.length} results, embed=${embedTime}ms, search=${searchTime}ms, total=${totalTime}ms`);
+      return results;
+    } catch (err) {
+      logger.error(`VectorIndex search failed, falling back to SQLite: ${err.message}`);
+      // Fall through to SQLite path
+    }
+  }
 
   const allResults = [];
 
@@ -113,9 +135,14 @@ async function unifiedSearch(query, opts = {}) {
   }
 
   // Sort by score, return top K
-  return allResults
+  const results = allResults
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
+
+  const totalTime = Date.now() - startTime;
+  logger.debug(`SQLite search: ${results.length} results, embed=${embedTime}ms, total=${totalTime}ms`);
+
+  return results;
 }
 
 module.exports = { unifiedSearch };

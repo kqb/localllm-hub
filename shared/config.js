@@ -39,6 +39,12 @@ const defaults = {
   },
   contextPipeline: {
     enabled: true,
+    // Phase 1 optimizations (P0)
+    parallelExecution: true,        // Run RAG + routing in parallel (saves ~400-800ms)
+    vectorIndex: {
+      enabled: true,                // Use in-memory vector index for fast search (50-100x speedup)
+      staleAfterMs: 60000,          // Reload index after 60s
+    },
     shortTerm: {
       enabled: true,
       maxMessages: 20,
