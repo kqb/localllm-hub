@@ -330,6 +330,66 @@ program
       } else {
         console.log(JSON.stringify(result, null, 2));
       }
+// Pipelines
+const pipeline = program
+  .command('pipeline')
+  .description('Multi-step AI pipelines');
+
+pipeline
+  .command('email-triage')
+  .description('Email triage pipeline: classify → urgency → route → notify')
+  .option('--from <email>', 'From email address', '')
+  .option('--subject <subject>', 'Email subject', '')
+  .option('--body <body>', 'Email body', '')
+  .option('--labels <labels>', 'Comma-separated labels', '')
+  .option('--threshold <number>', 'Urgency notification threshold (1-5)', '4')
+  .action(async (options) => {
+    const { handleEmailTriage } = require('./packages/pipelines/cli');
+    try {
+      await handleEmailTriage(options);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+pipeline
+  .command('voice-memo <file>')
+  .description('Voice memo ingestion pipeline: transcribe → embed → store')
+  .option('--context', 'Retrieve related context from memory', false)
+  .option('--top-k <number>', 'Number of context results', '3')
+  .action(async (file, options) => {
+    const { handleVoiceMemo } = require('./packages/pipelines/cli');
+    try {
+      await handleVoiceMemo(file, options);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+pipeline
+  .command('history')
+  .description('View pipeline run history')
+  .option('-p, --pipeline <name>', 'Filter by pipeline name')
+  .option('-l, --limit <number>', 'Max results', '50')
+  .action(async (options) => {
+    const { handleHistory } = require('./packages/pipelines/cli');
+    try {
+      await handleHistory(options);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+pipeline
+  .command('stats')
+  .description('View pipeline statistics')
+  .action(async () => {
+    const { handleStats } = require('./packages/pipelines/cli');
+    try {
+      await handleStats();
     } catch (error) {
       console.error('Error:', error.message);
       process.exit(1);
