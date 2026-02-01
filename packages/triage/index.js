@@ -77,8 +77,21 @@ API tasks: complex analysis, research required, multi-step reasoning`;
   }
 }
 
-const VALID_ROUTES = ['claude_opus', 'claude_sonnet', 'local_qwen', 'local_reasoning', 'wingman'];
+const VALID_ROUTES = ['claude_opus', 'claude_sonnet', 'claude_haiku'];
 const VALID_PRIORITIES = ['high', 'medium', 'low'];
+
+// Escalation config: Haiku and Sonnet can ask user to escalate
+const ESCALATION = {
+  claude_haiku: {
+    next: 'claude_sonnet',
+    prompt: 'This task might need a more capable model. Want me to escalate to Sonnet?',
+  },
+  claude_sonnet: {
+    next: 'claude_opus',
+    prompt: 'This is pretty complex. Want me to escalate to Opus?',
+  },
+  claude_opus: null, // Top tier, no escalation
+};
 
 /**
  * Route a user prompt to the optimal model based on task type.
@@ -103,17 +116,25 @@ async function routeToModel(prompt, recentHistory = []) {
 
     if (jsonMatch) {
       const result = JSON.parse(jsonMatch[0]);
+      // Map legacy routes to new 3-tier system
+      let route = result.route;
+      if (route === 'local_qwen' || route === 'local_reasoning') route = 'claude_haiku';
+      if (route === 'wingman') route = 'claude_sonnet';
+      if (!VALID_ROUTES.includes(route)) route = 'claude_sonnet';
+
+      const escalation = ESCALATION[route] || null;
       return {
-        route: VALID_ROUTES.includes(result.route) ? result.route : 'claude_sonnet',
+        route,
         reason: result.reason || 'No reason provided',
         priority: VALID_PRIORITIES.includes(result.priority) ? result.priority : 'medium',
+        escalation: escalation ? { next: escalation.next, prompt: escalation.prompt } : null,
       };
     }
 
-    return { route: 'claude_sonnet', reason: 'Failed to parse router output', priority: 'medium' };
+    return { route: 'claude_sonnet', reason: 'Failed to parse router output', priority: 'medium', escalation: ESCALATION.claude_sonnet };
   } catch (error) {
     logger.error('Model routing failed:', error.message);
-    return { route: 'claude_sonnet', reason: 'Error during routing', priority: 'medium' };
+    return { route: 'claude_sonnet', reason: 'Error during routing', priority: 'medium', escalation: ESCALATION.claude_sonnet };
   }
 }
 

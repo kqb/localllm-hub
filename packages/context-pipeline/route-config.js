@@ -11,13 +11,13 @@ const logger = require("../../shared/logger");
  * This reduces injected context tokens by 30-60% for simple routes.
  */
 const ROUTE_RAG_CONFIGS = {
-  local_qwen:       { topK: 3,  sources: ["memory"],                    minScore: 0.4  },
-  local_reasoning:   { topK: 0,  sources: [],                            minScore: 0    },
-  claude_haiku:      { topK: 3,  sources: ["memory"],                    minScore: 0.35 },
-  claude_sonnet:     { topK: 5,  sources: ["memory", "chat"],            minScore: 0.3  },
-  claude_opus:       { topK: 10, sources: ["memory", "chat", "telegram"], minScore: 0.25 },
-  gemini_3_pro:      { topK: 10, sources: ["memory", "chat", "telegram"], minScore: 0.25 },
-  wingman:           { topK: 7,  sources: ["memory", "chat"],            minScore: 0.3  },
+  claude_haiku:      { topK: 5,  sources: ["memory", "chat", "telegram"], minScore: 0.3  },
+  claude_sonnet:     { topK: 7,  sources: ["memory", "chat", "telegram"], minScore: 0.25 },
+  claude_opus:       { topK: 10, sources: ["memory", "chat", "telegram"], minScore: 0.2  },
+  // Legacy routes → map to new tiers for backwards compatibility
+  local_qwen:       { topK: 5,  sources: ["memory", "chat", "telegram"], minScore: 0.3  },
+  local_reasoning:   { topK: 5,  sources: ["memory", "chat", "telegram"], minScore: 0.3  },
+  wingman:           { topK: 7,  sources: ["memory", "chat", "telegram"], minScore: 0.25 },
 };
 
 const DEFAULT_RAG_CONFIG = { topK: 5, sources: ["memory", "chat", "telegram"], minScore: 0.3 };

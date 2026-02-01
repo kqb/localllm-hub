@@ -357,9 +357,15 @@
       <div id="status-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
     </div>
     <div class="card" id="models-card">
-      <h2>🤖 Loaded Models</h2>
+      <h2>🤖 Loaded Models (Ollama)</h2>
       <div id="models-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
     </div>
+  </section>
+
+  <!-- MLX Models -->
+  <section class="card" id="mlx-card">
+    <h2>🚀 MLX Models (M4 Optimized)</h2>
+    <div id="mlx-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
   <!-- Context Monitor -->
@@ -652,6 +658,44 @@ async function loadModels() {
     $('models-content').innerHTML = html;
   } catch (e) {
     $('models-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+async function loadMLX() {
+  try {
+    const res = await fetch(API + '/api/mlx/status');
+    const d = await res.json();
+    
+    if (!d.running) {
+      $('mlx-content').innerHTML = '<div class="empty" style="color:var(--yellow)">MLX server not running</div>';
+      return;
+    }
+    
+    const models = d.models || [];
+    if (!models.length) {
+      $('mlx-content').innerHTML = '<div class="empty">No MLX models loaded</div>';
+      return;
+    }
+    
+    let html = '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;justify-content:space-between">';
+    html += `<span class="badge green">Server Running • Port ${d.server.port}</span>`;
+    if (d.server.ramUsageGB && d.server.ramUsageGB !== 'unknown') {
+      html += `<span class="badge blue">RAM: ${d.server.ramUsageGB} GB / 36 GB</span>`;
+    }
+    html += '</div>';
+    
+    for (const m of models) {
+      const name = m.id.split('/').pop();
+      html += `<div class="model-row">
+        <span class="name">${name}</span>
+        <span class="badge purple">MLX</span>
+        <span class="badge green">Loaded</span>
+      </div>`;
+    }
+    
+    $('mlx-content').innerHTML = html;
+  } catch (e) {
+    $('mlx-content').innerHTML = `<div class="empty" style="color:var(--red)">${e.message}</div>`;
   }
 }
 
@@ -3159,7 +3203,7 @@ document.addEventListener('click', (e) => {
 });
 
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher()]);
+  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher()]);
   connectWs();
 
   // Set up export diagnostics button
@@ -3172,7 +3216,7 @@ document.addEventListener('click', (e) => {
   // Refresh context pipeline every 30s
   setInterval(loadContextPipeline, 30000);
   // Refresh full status every 60s
-  setInterval(() => { loadStatus(); loadJobs(); loadPipelines(); loadDaemons(); loadAlerts(); }, 60000);
+  setInterval(() => { loadStatus(); loadModels(); loadMLX(); loadJobs(); loadPipelines(); loadDaemons(); loadAlerts(); }, 60000);
   // Refresh model manager and budget every 30s
   setInterval(() => { loadModelManager(); loadBudget(); }, 30000);
   // Refresh model switcher every 30s

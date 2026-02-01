@@ -77,6 +77,34 @@ app.get('/api/models', async (_req, res) => {
   res.json(data);
 });
 
+// MLX Models API
+app.get('/api/mlx/status', async (_req, res) => {
+  try {
+    const response = await fetch('http://localhost:8080/v1/models');
+    if (!response.ok) {
+      return res.json({ running: false, models: [], error: 'MLX server not running' });
+    }
+    const data = await response.json();
+    
+    // Get process info
+    const { execSync } = require('child_process');
+    let ramUsage = 0;
+    try {
+      const ps = execSync('ps aux | grep "mlx_lm.server" | grep -v grep').toString();
+      const match = ps.match(/(\d+\.\d+)%/);
+      if (match) ramUsage = parseFloat(match[1]);
+    } catch {}
+    
+    res.json({
+      running: true,
+      models: data.data || [],
+      server: { port: 8080, ramUsageGB: ramUsage ? (ramUsage * 36 / 100).toFixed(1) : 'unknown' }
+    });
+  } catch (err) {
+    res.json({ running: false, models: [], error: err.message });
+  }
+});
+
 app.get('/api/search', async (req, res) => {
   const { q, sources, topK } = req.query;
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
@@ -340,7 +368,7 @@ const contextPipelineActivity = [];
 const MAX_ACTIVITY_LOG = 100;
 
 app.post('/api/context-pipeline/enrich', async (req, res) => {
-  const { message, sessionId, options } = req.body;
+  const { message, sessionId, options, currentModel } = req.body;
   if (!message) return res.status(400).json({ error: 'Missing message' });
 
   try {
@@ -383,14 +411,14 @@ app.post('/api/context-pipeline/enrich', async (req, res) => {
     // Log activity for dashboard with enhanced routing details
     contextPipelineActivity.push({
       timestamp: new Date().toISOString(),
-      
+
       // Full query details
       query: {
         fullText: message,
         truncated: message.slice(0, 200), // First 200 chars for display
         length: message.length
       },
-      
+
       // RAG context details
       ragContext: {
         count: result.ragContext.length,
@@ -400,26 +428,27 @@ app.post('/api/context-pipeline/enrich', async (req, res) => {
           snippet: r.text.slice(0, 100)
         }))
       },
-      
+
       // Routing decision details
       routeDecision: result.routeDecision ? {
         route: result.routeDecision.route,
         clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
         priority: result.routeDecision.priority,
         reason: result.routeDecision.reason,
-        
+
         // Add conversation history used for routing
-        conversationHistory: result.shortTermHistory ? 
+        conversationHistory: result.shortTermHistory ?
           result.shortTermHistory.map(msg => ({
             role: msg.role,
             text: msg.content ? msg.content.slice(0, 100) : null
           })) : null
       } : null,
-      
+
       // Execution metadata
       metadata: {
         assemblyTimeMs: result.metadata.assemblyTime,
-        sessionId: result.metadata.sessionId
+        sessionId: result.metadata.sessionId,
+        currentModel: currentModel || null  // Track current model from plugin
       }
     });
     if (contextPipelineActivity.length > MAX_ACTIVITY_LOG) {
@@ -875,92 +904,7 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
-// --- Context Pipeline ---
-
-// Helper: map localllm route names to Clawdbot model strings
-function mapRouteToClawdbotModel(route) {
-  const mapping = {
-    'claude_opus': 'anthropic/claude-opus-4-5',
-    'claude_sonnet': 'anthropic/claude-sonnet-4-5',
-    'local_reasoning': null,  // Use Clawdbot default (Sonnet)
-    'local_qwen': 'ollama/qwen2.5:14b',  // Route to local Ollama
-    'wingman': 'anthropic/claude-sonnet-4-5',
-  };
-  return mapping[route] || null;
-}
-
-app.post('/api/context-pipeline/enrich', async (req, res) => {
-  const { message, sessionId, options } = req.body;
-  if (!message) return res.status(400).json({ error: 'Missing message' });
-
-  try {
-    const { assembleContext } = require('../context-pipeline');
-    const result = await assembleContext(message, sessionId || 'clawdbot-main', options || {});
-
-    // Return only what Clawdbot needs — not the full assembled prompt
-    const enrichment = {
-      // RAG context formatted as text block for injection
-      ragContext: result.ragContext.length > 0
-        ? result.ragContext
-            .map((r, i) => `[${i + 1}] (${r.source}, score: ${r.score.toFixed(2)})\n${r.text}`)
-            .join('\n\n---\n\n')
-        : null,
-
-      // Route suggestion
-      routeSuggestion: result.routeDecision
-        ? {
-            route: result.routeDecision.route,
-            reason: result.routeDecision.reason,
-            priority: result.routeDecision.priority,
-            // Map route names to Clawdbot model identifiers
-            clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
-          }
-        : null,
-
-      // System notes (wingman completions, etc.)
-      systemNotes: result.systemNotes.length > 0
-        ? result.systemNotes.join('\n')
-        : null,
-
-      // Metadata for dashboard stats
-      metadata: {
-        assemblyTimeMs: result.metadata.assemblyTime,
-        ragResultCount: result.ragContext.length,
-        sessionId: result.metadata.sessionId,
-      },
-    };
-
-    res.json(enrichment);
-  } catch (err) {
-    // On error, return empty enrichment (don't block Clawdbot)
-    res.status(200).json({
-      ragContext: null,
-      routeSuggestion: null,
-      systemNotes: null,
-      metadata: { error: err.message },
-    });
-  }
-});
-
-app.post('/api/context-pipeline/persist', async (req, res) => {
-  const { sessionId, userMessage, assistantMessage, model } = req.body;
-  try {
-    const { addMessageToSession } = require('../context-pipeline');
-    if (userMessage) {
-      addMessageToSession(sessionId || 'clawdbot-main', {
-        role: 'user', content: userMessage
-      });
-    }
-    if (assistantMessage) {
-      addMessageToSession(sessionId || 'clawdbot-main', {
-        role: 'assistant', content: assistantMessage, model
-      });
-    }
-    res.json({ status: 'ok' });
-  } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
-  }
-});
+// --- Context Pipeline (continued) ---
 
 // --- Agent Monitor ---
 

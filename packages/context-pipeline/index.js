@@ -134,15 +134,19 @@ const SKIP_PATTERNS = [
   /^System:/,
   /^\[media attached:.*\]$/,
 ];
-const SKIP_MAX_LENGTH = 15;
+const SKIP_MAX_LENGTH = 10;
 
 /**
  * Determine if a message should skip expensive enrichment (RAG + routing)
+ * Only skip truly trivial messages (acknowledgments, single words).
+ * Anything with 2+ words that isn't a known trivial pattern should get enriched.
  */
 function shouldSkipEnrichment(messageText) {
-  if (messageText.length <= SKIP_MAX_LENGTH) {
-    const hasVerb = /\b(fix|run|show|find|search|list|get|set|add|remove|delete|update|create|explain|describe)\b/i;
-    if (!hasVerb.test(messageText)) return true;
+  const trimmed = messageText.trim();
+  // Only skip very short messages that match known trivial patterns
+  if (trimmed.length <= SKIP_MAX_LENGTH && trimmed.split(/\s+/).length <= 2) {
+    const hasSubstance = /\b(fix|run|show|find|search|list|get|set|add|remove|delete|update|create|explain|describe|start|stop|check|open|close|send|build|test|deploy|help|what|how|why|where|when|who|status|route|model)\b/i;
+    if (!hasSubstance.test(trimmed)) return true;
   }
   for (const pattern of SKIP_PATTERNS) {
     if (pattern.test(messageText.trim())) return true;
