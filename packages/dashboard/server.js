@@ -352,15 +352,18 @@ app.post('/api/pipelines/voice-memo', async (req, res) => {
 // --- Context Pipeline (Clawdbot integration) ---
 
 // Helper: map localllm route names to Clawdbot model strings
+// 3-tier: haiku/sonnet/opus only. Legacy routes map to safe tiers.
 function mapRouteToClawdbotModel(route) {
   const mapping = {
     'claude_opus': 'anthropic/claude-opus-4-5',
     'claude_sonnet': 'anthropic/claude-sonnet-4-5',
-    'local_reasoning': null,  // Use Clawdbot default (Sonnet)
-    'local_qwen': 'ollama/qwen2.5:14b',  // Route to local Ollama
+    'claude_haiku': 'anthropic/claude-haiku-3-5',
+    // Legacy routes → safe fallbacks (NEVER route to qwen/local)
+    'local_reasoning': 'anthropic/claude-sonnet-4-5',
+    'local_qwen': 'anthropic/claude-haiku-3-5',
     'wingman': 'anthropic/claude-sonnet-4-5',
   };
-  return mapping[route] || null;
+  return mapping[route] || 'anthropic/claude-sonnet-4-5';  // Default to sonnet, never null
 }
 
 // Activity log storage (in-memory, last 100 calls)
@@ -392,6 +395,8 @@ app.post('/api/context-pipeline/enrich', async (req, res) => {
             priority: result.routeDecision.priority,
             // Map route names to Clawdbot model identifiers
             clawdbotModel: mapRouteToClawdbotModel(result.routeDecision.route),
+            // Escalation info (haiku→sonnet, sonnet→opus)
+            escalation: result.routeDecision.escalation || null,
           }
         : null,
 
