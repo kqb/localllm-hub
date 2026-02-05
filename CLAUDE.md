@@ -387,6 +387,8 @@ Real-time web monitoring dashboard. Express + WebSocket + vanilla JS.
 | GET | `/api/chat/sessions` | List JSONL session files |
 | GET | `/api/chat/:id/messages?offset=&limit=` | Paginated conversation history |
 | GET | `/api/chat/:id/messages/stream?last=` | Tail last N messages |
+| POST | `/api/zoid/activity` | Log Zoid orchestration action (body: `{action, session, details}`) |
+| GET | `/api/zoid/activity` | Retrieve recent Zoid activity log (last 100 entries) |
 | GET | `/api/diagnostics/export` | Comprehensive diagnostics export (JSON) |
 
 #### WebSocket
@@ -394,19 +396,21 @@ Real-time web monitoring dashboard. Express + WebSocket + vanilla JS.
 Broadcasts every 30s:
 - `type: "status"` — Ollama health + loaded models
 - `type: "agents"` — Active agent session list
+- `type: "zoid_activity"` — Zoid orchestration actions (real-time)
 
 #### Frontend Panels (single-page `index.html`)
 
 1. **Status + Models** — Ollama health, loaded models grid
 2. **📊 Context Monitor** — Context window progress bar (color-coded green/yellow/red), injected file token costs, memory footprint, auto-refresh 30s
 3. **🤖 Agent Monitor** — Clawdbot + tmux session list with status dots (green=active, yellow=idle, red=stale), click to expand live output viewer (5s refresh), input bar to send commands
-4. **💬 Conversation** — Full chat history with session selector, toggle buttons for 🧠 Thinking / 🔧 Tools / 📊 Usage, collapsible thinking blocks, expandable tool call arguments, markdown rendering, pagination (load more), live tail (5s polling)
-5. **🔍 Semantic Search** — Multi-source search with sliders and source toggles
-6. **Jobs** — Ingestion stats (chat chunks, telegram chunks, progress)
-7. **Clawdbot Config** — Editable gateway config (writes to clawdbot.json)
-8. **Memory Config** — Editable localllm config (writes to config.local.json)
-9. **Daemons** — Launchd service status with log viewers + restart buttons
-10. **Packages** — Health grid for all localllm packages
+4. **🦑 Zoid Activity Log** — Real-time log of Zoid's orchestration actions (check, nudge, kill, assess, spawn, suppress), color-coded by action type, shows timestamp/session/details, manual logging via `~/clawd/scripts/log-zoid-action.sh` or POST /api/zoid/activity, WebSocket updates
+5. **💬 Conversation** — Full chat history with session selector, toggle buttons for 🧠 Thinking / 🔧 Tools / 📊 Usage, collapsible thinking blocks, expandable tool call arguments, markdown rendering, pagination (load more), live tail (5s polling)
+6. **🔍 Semantic Search** — Multi-source search with sliders and source toggles
+7. **Jobs** — Ingestion stats (chat chunks, telegram chunks, progress)
+8. **Clawdbot Config** — Editable gateway config (writes to clawdbot.json)
+9. **Memory Config** — Editable localllm config (writes to config.local.json)
+10. **Daemons** — Launchd service status with log viewers + restart buttons
+11. **Packages** — Health grid for all localllm packages
 
 #### Dashboard Architecture Patterns
 
@@ -1153,4 +1157,12 @@ node cli.js classify --from "noreply@github.com" --subject "PR merged"
 
 # Rate urgency
 node cli.js triage "production server is down"
+
+# Log Zoid orchestration actions
+~/clawd/scripts/log-zoid-action.sh check agent-name "Checking status"
+~/clawd/scripts/log-zoid-action.sh assess agent-name "Agent appears stuck"
+~/clawd/scripts/log-zoid-action.sh nudge agent-name "Sent continue prompt"
+~/clawd/scripts/log-zoid-action.sh kill agent-name "Unresponsive"
+~/clawd/scripts/log-zoid-action.sh spawn agent-name "Starting new task"
+~/clawd/scripts/log-zoid-action.sh suppress agent-name "Silencing alerts"
 ```

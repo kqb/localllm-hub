@@ -18,6 +18,10 @@ const server = http.createServer(app);
 // WebSocket server for real-time agent monitoring
 let wsServer = null;
 
+// In-memory storage for Zoid activity log (last 100 entries)
+const zoidActivityLog = [];
+const MAX_ACTIVITY_LOG_SIZE = 100;
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -1943,6 +1947,124 @@ app.get('/api/dev/alerts', (_req, res) => {
   res.json({ alerts });
 });
 
+// --- Alert Manager API ---
+
+app.get('/api/alerts/states', (_req, res) => {
+  try {
+    if (!wsServer) {
+      return res.status(503).json({ error: 'WebSocket server not initialized' });
+    }
+
+    const alertManager = wsServer.alertManager;
+    const states = alertManager.getAlertStates();
+
+    res.json({
+      states,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/alerts/:session/suppress', (req, res) => {
+  try {
+    if (!wsServer) {
+      return res.status(503).json({ error: 'WebSocket server not initialized' });
+    }
+
+    const session = req.params.session;
+    const duration = parseInt(req.body.duration, 10) || 30; // Default 30 minutes
+
+    wsServer.alertManager.suppressAlerts(session, duration * 60 * 1000);
+
+    res.json({
+      success: true,
+      session,
+      suppressedForMinutes: duration,
+      message: `Alerts suppressed for ${duration} minutes`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/alerts/:session/unsuppress', (req, res) => {
+  try {
+    if (!wsServer) {
+      return res.status(503).json({ error: 'WebSocket server not initialized' });
+    }
+
+    const session = req.params.session;
+    wsServer.alertManager.unsuppressAlerts(session);
+
+    res.json({
+      success: true,
+      session,
+      message: 'Alerts re-enabled',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Zoid Activity Log ---
+
+// POST /api/zoid/activity - Log Zoid's orchestration action
+app.post('/api/zoid/activity', (req, res) => {
+  try {
+    const { action, session, details } = req.body;
+
+    if (!action) {
+      return res.status(400).json({ error: 'Missing required field: action' });
+    }
+
+    const entry = {
+      timestamp: new Date().toISOString(),
+      action,
+      session: session || null,
+      details: details || null,
+    };
+
+    // Add to in-memory log (keep last 100 entries)
+    zoidActivityLog.push(entry);
+    if (zoidActivityLog.length > MAX_ACTIVITY_LOG_SIZE) {
+      zoidActivityLog.shift();
+    }
+
+    // Broadcast to WebSocket clients for real-time updates
+    if (wsServer) {
+      wsServer.broadcast({
+        type: 'zoid_activity',
+        ...entry,
+      });
+    }
+
+    console.log(`[Zoid Activity] ${action}${session ? ` (${session})` : ''}${details ? `: ${details}` : ''}`);
+
+    res.json({ success: true, entry });
+  } catch (err) {
+    console.error('[Zoid Activity] Error logging activity:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/zoid/activity - Retrieve recent activity log
+app.get('/api/zoid/activity', (_req, res) => {
+  try {
+    // Return logs in reverse chronological order (newest first)
+    const logs = [...zoidActivityLog].reverse();
+    res.json({
+      logs,
+      count: logs.length,
+      maxSize: MAX_ACTIVITY_LOG_SIZE,
+    });
+  } catch (err) {
+    console.error('[Zoid Activity] Error retrieving logs:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Diagnostics Export ---
 
 app.get('/api/diagnostics/export', async (_req, res) => {
@@ -2451,6 +2573,72 @@ app.get('/api/alerts/system', async (_req, res) => {
       active: activeAlerts,
       recent: recentAlerts,
       metrics,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Alert Delivery Config ---
+
+app.get('/api/alerts/delivery-config', (_req, res) => {
+  try {
+    const dataDir = path.join(__dirname, '../../data');
+    const configPath = path.join(dataDir, 'alerts-config.json');
+
+    // Default config
+    let config = {
+      deliveryMode: 'system', // 'system' or 'direct'
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Load existing config if available
+    if (existsSync(configPath)) {
+      try {
+        config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      } catch (err) {
+        console.warn('[API] Error loading alerts config:', err.message);
+      }
+    }
+
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/alerts/delivery-config', (req, res) => {
+  try {
+    const { deliveryMode } = req.body;
+    const { writeFileSync, mkdirSync } = require('fs');
+
+    // Validate delivery mode
+    if (!['system', 'direct'].includes(deliveryMode)) {
+      return res.status(400).json({ error: 'Invalid deliveryMode. Must be "system" or "direct".' });
+    }
+
+    const dataDir = path.join(__dirname, '../../data');
+    const configPath = path.join(dataDir, 'alerts-config.json');
+
+    // Ensure data directory exists
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+
+    // Update config
+    const config = {
+      deliveryMode,
+      updatedAt: new Date().toISOString(),
+    };
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    console.log(`[API] Alert delivery mode updated to: ${deliveryMode}`);
+
+    res.json({
+      success: true,
+      config,
+      message: `Alert delivery mode set to "${deliveryMode}"`,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

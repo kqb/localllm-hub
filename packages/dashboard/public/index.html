@@ -93,6 +93,8 @@
 
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
   .loading-text { color: var(--text2); font-size: 13px; display: flex; align-items: center; gap: 8px; }
 
   .empty { color: var(--text2); font-size: 14px; text-align: center; padding: 24px; }
@@ -149,9 +151,33 @@
   .agent-status-dot.idle { background: var(--yellow); }
   .agent-status-dot.stale { background: var(--red); }
   .agent-output { background: #1a1a2e; color: #e0e0e0; font-family: monospace; font-size: 12px; padding: 12px; border-radius: 4px; overflow-y: auto; max-height: 400px; line-height: 1.6; margin-top: 12px; white-space: pre-wrap; word-break: break-word; }
+  .agent-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .agent-actions .btn { flex: 1; padding: 8px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; cursor: pointer; transition: all .15s; }
+  .agent-actions .btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .agent-actions .btn-kill { background: rgba(248,81,73,.1); border-color: rgba(248,81,73,.3); color: #f85149; }
+  .agent-actions .btn-kill:hover { background: #f85149; border-color: #f85149; color: #fff; }
+  .agent-actions .btn-suppress { background: rgba(255,193,7,.1); border-color: rgba(255,193,7,.3); color: #ffc107; }
+  .agent-actions .btn-suppress:hover { background: #ffc107; border-color: #ffc107; color: #1a1a2e; }
   .agent-input-bar { display: flex; gap: 8px; margin-top: 8px; }
   .agent-input-bar input[type=text] { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; }
   .agent-input-bar input:focus { border-color: var(--accent); }
+
+  /* Zoid Activity Log */
+  .activity-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .activity-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .activity-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  .activity-table tr:last-child td { border-bottom: none; }
+  .activity-table .timestamp { color: var(--text2); font-size: 12px; white-space: nowrap; }
+  .activity-table .action { font-weight: 600; }
+  .activity-table .action-check { color: var(--accent); }
+  .activity-table .action-nudge { color: var(--yellow); }
+  .activity-table .action-kill { color: var(--red); }
+  .activity-table .action-assess { color: var(--purple); }
+  .activity-table .action-spawn { color: var(--green); }
+  .activity-table .action-suppress { color: var(--orange); }
+  .activity-table .session-name { font-family: monospace; font-size: 12px; color: var(--text); }
+  .activity-table .details { color: var(--text2); font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-log-container { max-height: 400px; overflow-y: auto; }
 
   /* Budget bar */
   .budget-bar { position: relative; height: 36px; background: var(--bg3); border-radius: 4px; overflow: hidden; display: flex; }
@@ -500,6 +526,12 @@
     <div id="agents-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
+  <!-- Zoid Activity Log -->
+  <section class="card" id="zoid-activity-card">
+    <h2>🦑 Zoid Activity Log</h2>
+    <div id="zoid-activity-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
   <!-- Conversation -->
   <section class="card" id="chat-card">
     <h2>💬 Conversation</h2>
@@ -666,13 +698,21 @@
   <div class="tab-panel" id="tab-development" role="tabpanel">
 
   <section class="card">
-    <h2>🚀 Development Agent Tracking</h2>
+    <h2>🚀 Development Agent Tracking <span style="font-size:0.7em;opacity:0.6">(Real-Time)</span></h2>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <span id="dev-last-update" style="font-size:12px;color:var(--text2)">Not loaded</span>
-      <button class="btn sm outline" onclick="loadDevAgents()">↻ Refresh</button>
+      <div>
+        <span class="connection-status-inline">
+          <span class="status-dot" id="dev-ws-status-dot"></span>
+          <span id="dev-ws-status-text" style="font-size:12px;color:var(--text2)">Connecting...</span>
+        </span>
+      </div>
+      <div>
+        <span id="dev-event-count" style="font-size:12px;color:var(--text2);margin-right:1rem">Events: 0</span>
+        <button class="btn sm outline" onclick="refreshDevAgents()">↻ Refresh</button>
+      </div>
     </div>
     <div id="dev-agents-content" class="dev-agents-grid">
-      <span class="loading-text"><span class="spinner"></span> Loading agents...</span>
+      <span class="loading-text"><span class="spinner"></span> Connecting to Agent Monitor...</span>
     </div>
   </section>
 
@@ -692,6 +732,448 @@
   </section>
 
   </div><!-- /tab-development -->
+
+<style>
+.connection-status-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: gray;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.connected { background: var(--green); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.dev-agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.dev-agent-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  position: relative;
+}
+
+.dev-agent-card.state-working { border-left: 4px solid var(--green); }
+.dev-agent-card.state-thinking { border-left: 4px solid var(--blue); }
+.dev-agent-card.state-stuck { border-left: 4px solid var(--yellow); }
+.dev-agent-card.state-error { border-left: 4px solid var(--red); }
+.dev-agent-card.state-complete { border-left: 4px solid var(--green); }
+.dev-agent-card.state-idle { border-left: 4px solid gray; }
+
+.dev-agent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.dev-agent-name {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.dev-agent-session {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  margin-top: 0.25rem;
+}
+
+.dev-agent-state {
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.state-badge.working { background: var(--green); color: black; }
+.state-badge.thinking { background: var(--blue); color: white; }
+.state-badge.stuck { background: var(--yellow); color: black; }
+.state-badge.error { background: var(--red); color: white; }
+.state-badge.idle { background: gray; color: white; }
+.state-badge.complete { background: var(--green); color: black; }
+.state-badge.inactive { background: #333; color: white; }
+
+.dev-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.dev-progress-fill {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.3s ease;
+}
+
+.dev-agent-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.75rem;
+}
+
+.dev-stat {
+  text-align: center;
+  padding: 0.4rem;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+}
+
+.dev-stat-label {
+  opacity: 0.6;
+  font-size: 0.7rem;
+}
+
+.dev-stat-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+.dev-agent-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.dev-agent-controls .btn {
+  flex: 1;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.dev-alert-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.dev-alert-item {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255,100,100,0.1);
+  border-left: 3px solid var(--red);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.dev-timeline {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.dev-timeline-item {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-left: 2px solid var(--blue);
+  padding-left: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.dev-timeline-time {
+  opacity: 0.6;
+  font-size: 0.75rem;
+}
+</style>
+
+<script>
+(function() {
+  let devWs = null;
+  let devEventCount = 0;
+  let devAgents = {};
+  let devAlerts = [];
+  let devTimeline = [];
+  let devReconnectTimeout = null;
+  
+  window.initDevMonitor = function() {
+    const url = 'ws://localhost:3848';
+    
+    devWs = new WebSocket(url);
+    
+    devWs.onopen = () => {
+      console.log('[DevMonitor] WebSocket connected');
+      updateDevConnectionStatus(true);
+      
+      // Fetch initial state
+      fetchDevAgents();
+    };
+    
+    devWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        devEventCount++;
+        document.getElementById('dev-event-count').textContent = `Events: ${devEventCount}`;
+        
+        handleDevEvent(data);
+      } catch (err) {
+        console.error('[DevMonitor] Error parsing message:', err);
+      }
+    };
+    
+    devWs.onerror = (err) => {
+      console.error('[DevMonitor] WebSocket error:', err);
+      updateDevConnectionStatus(false);
+    };
+    
+    devWs.onclose = () => {
+      console.log('[DevMonitor] WebSocket closed');
+      updateDevConnectionStatus(false);
+      
+      // Reconnect after 5 seconds
+      devReconnectTimeout = setTimeout(() => {
+        console.log('[DevMonitor] Reconnecting...');
+        initDevMonitor();
+      }, 5000);
+    };
+  };
+  
+  function updateDevConnectionStatus(connected) {
+    const dot = document.getElementById('dev-ws-status-dot');
+    const text = document.getElementById('dev-ws-status-text');
+    
+    if (dot && text) {
+      if (connected) {
+        dot.classList.add('connected');
+        text.textContent = 'Connected';
+      } else {
+        dot.classList.remove('connected');
+        text.textContent = 'Disconnected (reconnecting...)';
+      }
+    }
+  }
+  
+  function handleDevEvent(data) {
+    const eventType = data.type || data.event;
+    
+    // Add to timeline
+    addToTimeline(eventType, data);
+    
+    switch (eventType) {
+      case 'state_change':
+      case 'progress':
+        updateDevAgent(data.session, data);
+        break;
+      
+      case 'agent_stuck':
+        updateDevAgent(data.session, { state: 'stuck' });
+        addAlert(`Agent ${data.session} is stuck (idle ${Math.round(data.idleTime)}s)`);
+        break;
+      
+      case 'agent_error':
+        updateDevAgent(data.session, { state: 'error' });
+        addAlert(`Agent ${data.session} encountered an error`);
+        break;
+      
+      case 'agent_complete':
+        updateDevAgent(data.session, { state: 'complete' });
+        break;
+      
+      case 'command_sent':
+        console.log(`[DevMonitor] Command sent to ${data.session}`);
+        break;
+    }
+  }
+  
+  function addToTimeline(event, data) {
+    devTimeline.unshift({
+      event,
+      session: data.session,
+      timestamp: Date.now(),
+      data
+    });
+    
+    // Keep last 20 events
+    if (devTimeline.length > 20) devTimeline.pop();
+    
+    renderTimeline();
+  }
+  
+  function addAlert(message) {
+    devAlerts.unshift({ message, timestamp: Date.now() });
+    
+    // Keep last 10 alerts
+    if (devAlerts.length > 10) devAlerts.pop();
+    
+    renderAlerts();
+  }
+  
+  function fetchDevAgents() {
+    fetch('http://localhost:3848/api/agents')
+      .then(r => r.json())
+      .then(data => {
+        data.agents.forEach(agent => {
+          devAgents[agent.session] = agent;
+        });
+        renderDevAgents();
+      })
+      .catch(err => {
+        console.error('[DevMonitor] Error fetching agents:', err);
+        document.getElementById('dev-agents-content').innerHTML = 
+          '<div class="empty">Could not connect to Agent Monitor API (port 3848)</div>';
+      });
+  }
+  
+  function updateDevAgent(session, updates) {
+    if (!devAgents[session]) {
+      devAgents[session] = { session };
+    }
+    
+    Object.assign(devAgents[session], updates);
+    renderDevAgents();
+  }
+  
+  function renderDevAgents() {
+    const grid = document.getElementById('dev-agents-content');
+    
+    if (!grid) return;
+    
+    if (Object.keys(devAgents).length === 0) {
+      grid.innerHTML = '<div class="empty">No agents found. Start a wingman to see it here!</div>';
+      return;
+    }
+    
+    grid.innerHTML = Object.values(devAgents).map(agent => `
+      <div class="dev-agent-card state-${agent.state || 'idle'}">
+        <div class="dev-agent-header">
+          <div>
+            <div class="dev-agent-name">${formatSessionName(agent.session)}</div>
+            <div class="dev-agent-session">${agent.session}</div>
+          </div>
+          <div class="dev-agent-state state-badge ${agent.state || 'idle'}">${agent.state || 'idle'}</div>
+        </div>
+        
+        <div class="dev-progress-bar">
+          <div class="dev-progress-fill" style="width: ${agent.progress || 0}%"></div>
+        </div>
+        <div style="font-size: 0.75rem; opacity: 0.7; margin-top: 0.25rem;">
+          ${agent.progress || 0}% complete
+        </div>
+        
+        <div class="dev-agent-stats">
+          <div class="dev-stat">
+            <div class="dev-stat-label">Written</div>
+            <div class="dev-stat-value">${agent.files_written || 0}</div>
+          </div>
+          <div class="dev-stat">
+            <div class="dev-stat-label">Read</div>
+            <div class="dev-stat-value">${agent.files_read || 0}</div>
+          </div>
+          <div class="dev-stat">
+            <div class="dev-stat-label">Thinking</div>
+            <div class="dev-stat-value">${agent.contemplation_time || 0}s</div>
+          </div>
+        </div>
+        
+        <div class="dev-agent-controls">
+          <button class="btn sm" onclick="devNudge('${agent.session}')">Nudge</button>
+          <button class="btn sm outline" onclick="devViewLogs('${agent.session}')">Logs</button>
+          <button class="btn sm red" onclick="devKill('${agent.session}')">Kill</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  function renderAlerts() {
+    const container = document.getElementById('dev-alerts-content');
+    if (!container) return;
+    
+    if (devAlerts.length === 0) {
+      container.innerHTML = '<div class="empty">No alerts</div>';
+      return;
+    }
+    
+    container.innerHTML = devAlerts.map(alert => `
+      <div class="dev-alert-item">
+        ${escHtml(alert.message)}
+      </div>
+    `).join('');
+  }
+  
+  function renderTimeline() {
+    const container = document.getElementById('dev-timeline-content');
+    if (!container) return;
+    
+    if (devTimeline.length === 0) {
+      container.innerHTML = '<div class="empty">No events</div>';
+      return;
+    }
+    
+    container.innerHTML = devTimeline.map(item => `
+      <div class="dev-timeline-item">
+        <div class="dev-timeline-time">${new Date(item.timestamp).toLocaleTimeString()}</div>
+        <div>${item.event}: ${item.session}</div>
+      </div>
+    `).join('');
+  }
+  
+  function formatSessionName(session) {
+    return session.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+  
+  window.devNudge = function(session) {
+    fetch(`http://localhost:3848/api/agents/${session}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: '', source: 'dashboard' })
+    })
+    .then(r => r.json())
+    .then(() => console.log(`Nudged ${session}`))
+    .catch(err => alert('Failed to nudge: ' + err.message));
+  };
+  
+  window.devViewLogs = function(session) {
+    fetch(`http://localhost:3848/api/agents/${session}/output?lines=50`)
+      .then(r => r.json())
+      .then(data => alert(`Logs for ${session}:
+
+${data.output}`))
+      .catch(err => alert('Failed to fetch logs: ' + err.message));
+  };
+  
+  window.devKill = function(session) {
+    if (!confirm(`Kill agent ${session}?`)) return;
+    
+    fetch(`http://localhost:3848/api/agents/${session}/kill`, { method: 'POST' })
+      .then(r => r.json())
+      .then(() => {
+        alert(`Killed ${session}`);
+        delete devAgents[session];
+        renderDevAgents();
+      })
+      .catch(err => alert('Failed to kill: ' + err.message));
+  };
+  
+  window.refreshDevAgents = function() {
+    fetchDevAgents();
+  };
+  
+  // Auto-init when tab is shown
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initDevMonitor, 500);
+  });
+})();
+</script>
 
   <!-- ===== TAB: Logs ===== -->
   <div class="tab-panel" id="tab-logs" role="tabpanel">
@@ -1984,6 +2466,11 @@ async function loadAgents() {
 
     if (_agentSelectedKey) {
       html += '<div id="agent-output-pane" class="agent-output">Loading output...</div>';
+      html += '<div class="agent-actions">';
+      html += '<button class="btn btn-nudge" onclick="sendAgentAction(\'nudge\')">👋 Nudge</button>';
+      html += '<button class="btn btn-kill" onclick="sendAgentAction(\'kill\')">❌ Kill</button>';
+      html += '<button class="btn btn-suppress" onclick="sendAgentAction(\'suppress_alerts\')">🔕 Ignore 30m</button>';
+      html += '</div>';
       html += '<div class="agent-input-bar"><input type="text" id="agent-input" placeholder="Send command to agent..." /><button onclick="sendAgentInput()">Send</button></div>';
     }
 
@@ -2057,6 +2544,38 @@ async function sendAgentInput() {
   }
 }
 
+function sendAgentAction(action) {
+  if (!_agentSelectedKey || !_ws || _ws.readyState !== WebSocket.OPEN) {
+    console.error('Cannot send action: no session selected or WebSocket not connected');
+    return;
+  }
+
+  const message = {
+    action,
+    session: _agentSelectedKey,
+    duration: action === 'suppress_alerts' ? 30 : undefined, // 30 minutes for suppress
+  };
+
+  console.log('[Agent Action] Sending:', message);
+  _ws.send(JSON.stringify(message));
+
+  // Show feedback
+  if (action === 'nudge') {
+    alert('Nudge sent to ' + _agentSelectedKey);
+  } else if (action === 'kill') {
+    if (confirm('Kill session ' + _agentSelectedKey + '?')) {
+      // Confirmed, already sent
+      setTimeout(() => {
+        _agentSelectedKey = null;
+        _agentSelectedKind = null;
+        loadAgents();
+      }, 1000);
+    }
+  } else if (action === 'suppress_alerts') {
+    alert('Alerts suppressed for 30 minutes for ' + _agentSelectedKey);
+  }
+}
+
 function timeAgo(ts) {
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 60) return s + 's ago';
@@ -2078,6 +2597,60 @@ const PKG_DESC = {
   transcriber: 'Audio transcription (whisper.cpp)',
   'chat-ingest': 'Chat transcript ingestion & search'
 };
+
+// --- Zoid Activity Log ---
+
+async function loadZoidActivity() {
+  try {
+    const res = await fetch(API + '/api/zoid/activity');
+    const data = await res.json();
+
+    if (!data.logs || data.logs.length === 0) {
+      $('zoid-activity-content').innerHTML = '<div class="empty">No activity logged yet</div>';
+      return;
+    }
+
+    const actionColors = {
+      check: 'action-check',
+      nudge: 'action-nudge',
+      kill: 'action-kill',
+      assess: 'action-assess',
+      spawn: 'action-spawn',
+      suppress: 'action-suppress'
+    };
+
+    let html = '<div class="activity-log-container"><table class="activity-table">';
+    html += '<thead><tr><th>Timestamp</th><th>Action</th><th>Session</th><th>Details</th></tr></thead>';
+    html += '<tbody>';
+
+    for (const entry of data.logs) {
+      const time = new Date(entry.timestamp).toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      const actionClass = actionColors[entry.action] || '';
+
+      html += '<tr>';
+      html += '<td class="timestamp">' + escHtml(time) + '</td>';
+      html += '<td class="action ' + actionClass + '">' + escHtml(entry.action) + '</td>';
+      html += '<td class="session-name">' + escHtml(entry.session || '—') + '</td>';
+      html += '<td class="details" title="' + escHtml(entry.details || '') + '">' +
+              escHtml(entry.details || '—') + '</td>';
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+
+    // SAFETY: localhost-only admin dashboard. All user-supplied data (action, session, details)
+    // is escaped via escHtml() before insertion. innerHTML is used only for static HTML structure.
+    // This matches the pattern used throughout the dashboard (see loadAgents, loadPackages).
+    $('zoid-activity-content').innerHTML = html;
+  } catch (e) {
+    $('zoid-activity-content').textContent = 'Error: ' + e.message;
+  }
+}
 
 async function loadPackages() {
   try {
@@ -2509,12 +3082,16 @@ async function loadEconomics() {
 }
 
 // --- WebSocket ---
+let _ws = null;
 let _wsBackoff = 1000;
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}`);
-  ws.onopen = () => { _wsBackoff = 1000; };
-  ws.onmessage = (e) => {
+  _ws = new WebSocket(`${proto}//${location.host}/ws`);
+  _ws.onopen = () => {
+    _wsBackoff = 1000;
+    console.log('[WebSocket] Connected');
+  };
+  _ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
       if (msg.type === 'status') {
@@ -2536,13 +3113,21 @@ function connectWs() {
         // Live agent updates via WebSocket - refresh the agent list
         loadAgents();
       }
+      if (msg.type === 'zoid_activity') {
+        // Live Zoid activity log updates via WebSocket
+        loadZoidActivity();
+      }
     } catch {}
   };
-  ws.onclose = () => {
+  _ws.onclose = () => {
+    console.log('[WebSocket] Disconnected, reconnecting...');
     _wsBackoff = Math.min(_wsBackoff * 2, 30000);
     setTimeout(connectWs, _wsBackoff);
   };
-  ws.onerror = () => ws.close();
+  _ws.onerror = () => {
+    console.error('[WebSocket] Error');
+    _ws.close();
+  };
 }
 
 // --- Prompt Editor ---
@@ -3483,6 +4068,17 @@ async function loadContextPipeline() {
 
     let html = '';
 
+    // WIP WARNING BANNER - Routing Disabled
+    html += '<div style="background:rgba(210,153,34,.15);border:1px solid var(--yellow);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">';
+    html += '<div style="display:flex;align-items:center;gap:10px">';
+    html += '<span style="font-size:20px">⚠️</span>';
+    html += '<div>';
+    html += '<div style="font-weight:600;color:var(--yellow);margin-bottom:4px">Routing Disabled (WIP)</div>';
+    html += '<div style="font-size:13px;color:var(--text2);line-height:1.4">Model routing is disabled due to accuracy issues. RAG and context enrichment still active. See <code style="background:var(--bg3);padding:2px 6px;border-radius:3px;font-size:12px">~/Projects/localllm-hub/ROUTING.md</code> for re-enable instructions.</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+
     // Connection status indicator
     const isActive = status.registered && status.callCount > 0;
     const statusColor = isActive ? 'green' : status.registered ? 'yellow' : 'red';
@@ -3504,12 +4100,12 @@ async function loadContextPipeline() {
 
     html += '<div class="kv"><span class="k">Total Calls</span><span>' + (status.callCount || 0) + '</span></div>';
 
-    // Enforce Model Routing toggle
-    html += '<div class="kv" style="align-items:center">';
+    // Enforce Model Routing toggle (DISABLED - WIP)
+    html += '<div class="kv" style="align-items:center;opacity:0.4">';
     html += '<span class="k">Enforce Model Routing</span>';
-    html += '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">';
-    html += '<input type="checkbox" id="cp-enforce-model" style="accent-color:var(--accent)" onchange="toggleEnforceModel(this.checked)" />';
-    html += '<span style="font-size:12px;color:var(--text2)">Override Clawdbot model per-turn based on route suggestion</span>';
+    html += '<label style="display:flex;align-items:center;gap:8px;cursor:not-allowed" title="Disabled - routing is WIP">';
+    html += '<input type="checkbox" id="cp-enforce-model" style="accent-color:var(--accent)" disabled />';
+    html += '<span style="font-size:12px;color:var(--text2)">Override Clawdbot model per-turn based on route suggestion (disabled)</span>';
     html += '</label>';
     html += '</div>';
 
@@ -3859,7 +4455,7 @@ document.addEventListener('click', (e) => {
 });
 
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher(), loadRouterHealth(), loadMemoryPerformance(), loadTrustScore(), loadCorrectionsTimeline()]);
+  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadZoidActivity(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher(), loadRouterHealth(), loadMemoryPerformance(), loadTrustScore(), loadCorrectionsTimeline()]);
   connectWs();
 
   // Set up export diagnostics button
@@ -3883,5 +4479,532 @@ document.addEventListener('click', (e) => {
   setInterval(() => { loadRouterHealth(); loadMemoryPerformance(); loadTrustScore(); loadCorrectionsTimeline(); }, 60000);
 })();
 </script>
+<!-- Agent Monitor Tab -->
+<!-- Agent Monitor Tab - Add to existing dashboard -->
+
+<!-- CSS Styles -->
+<style>
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.agent-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  position: relative;
+}
+
+.agent-card.state-working { border-left: 4px solid var(--green); }
+.agent-card.state-thinking { border-left: 4px solid var(--blue); }
+.agent-card.state-stuck { border-left: 4px solid var(--yellow); }
+.agent-card.state-error { border-left: 4px solid var(--red); }
+.agent-card.state-complete { border-left: 4px solid var(--green); }
+
+.agent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.agent-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.agent-state {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.state-working { background: var(--green); color: black; }
+.state-thinking { background: var(--blue); color: white; }
+.state-stuck { background: var(--yellow); color: black; }
+.state-error { background: var(--red); color: white; }
+.state-idle { background: gray; color: white; }
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.3s ease;
+}
+
+.agent-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+.stat {
+  text-align: center;
+  padding: 0.5rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+
+.stat-label {
+  opacity: 0.7;
+  font-size: 0.75rem;
+}
+
+.stat-value {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.agent-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: opacity 0.2s;
+}
+
+.btn:hover { opacity: 0.8; }
+
+.btn-primary { background: var(--blue); color: white; }
+.btn-success { background: var(--green); color: black; }
+.btn-danger { background: var(--red); color: white; }
+.btn-secondary { background: gray; color: white; }
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: gray;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.connected { background: var(--green); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.command-input {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.command-input input {
+  flex: 1;
+  padding: 0.5rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  color: white;
+}
+</style>
+
+<!-- Tab Content -->
+<div id="tab-agent-monitor" class="tab-panel" role="tabpanel" style="display:none">
+  <h2>🤖 Agent Monitor - Real-Time Orchestration</h2>
+  
+  <div class="connection-status">
+    <div class="status-dot" id="ws-status-dot"></div>
+    <span id="ws-status-text">Connecting...</span>
+  </div>
+  
+  <!-- Alert Delivery Mode Toggle -->
+  <div style="margin: 1.5rem 0; padding: 1rem; background: var(--bg2); border-radius: var(--radius); border: 1px solid var(--border);">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+      <div>
+        <strong>Alert Delivery Mode</strong>
+        <div style="font-size: 0.9rem; opacity: 0.7; margin-top: 0.25rem;">
+          Controls how agent alerts reach you
+        </div>
+      </div>
+      <div id="alert-delivery-status" style="font-size: 0.9rem; opacity: 0.7;">Loading...</div>
+    </div>
+    
+    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+      <label style="flex: 1; cursor: pointer; padding: 0.75rem; border: 2px solid var(--border); border-radius: var(--radius); transition: all 0.2s;">
+        <input type="radio" name="alert-delivery" value="system" onchange="updateAlertDelivery('system')" style="margin-right: 0.5rem;">
+        <strong>System Events (Agent Filters)</strong>
+        <div style="font-size: 0.85rem; opacity: 0.8; margin-top: 0.25rem;">
+          🤖 Alerts sent to Zoid → agent decides what's important → user sees filtered results
+        </div>
+      </label>
+      
+      <label style="flex: 1; cursor: pointer; padding: 0.75rem; border: 2px solid var(--border); border-radius: var(--radius); transition: all 0.2s;">
+        <input type="radio" name="alert-delivery" value="direct" onchange="updateAlertDelivery('direct')" style="margin-right: 0.5rem;">
+        <strong>Direct Telegram Messages</strong>
+        <div style="font-size: 0.85rem; opacity: 0.8; margin-top: 0.25rem;">
+          📱 Alerts sent directly to Telegram → user sees everything immediately (no filtering)
+        </div>
+      </label>
+    </div>
+  </div>
+  
+  <div class="agent-grid" id="agent-grid">
+    <!-- Agent cards will be inserted here -->
+  </div>
+  
+  <div style="margin-top: 2rem; opacity: 0.6; font-size: 0.9rem;">
+    <strong>WebSocket:</strong> <span id="ws-url">ws://localhost:3848</span> | 
+    <strong>Events:</strong> <span id="event-count">0</span>
+  </div>
+</div>
+
+<!-- JavaScript -->
+<script>
+(function() {
+  let ws = null;
+  let eventCount = 0;
+  let agents = {};
+  let reconnectTimeout = null;
+  
+  function initWebSocket() {
+    const url = 'ws://localhost:3848';
+    document.getElementById('ws-url').textContent = url;
+    
+    ws = new WebSocket(url);
+    
+    ws.onopen = () => {
+      console.log('[AgentMonitor] WebSocket connected');
+      updateConnectionStatus(true);
+      
+      // Fetch initial state via HTTP
+      fetchAgents();
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        eventCount++;
+        document.getElementById('event-count').textContent = eventCount;
+        
+        handleEvent(data);
+      } catch (err) {
+        console.error('[AgentMonitor] Error parsing message:', err);
+      }
+    };
+    
+    ws.onerror = (err) => {
+      console.error('[AgentMonitor] WebSocket error:', err);
+      updateConnectionStatus(false);
+    };
+    
+    ws.onclose = () => {
+      console.log('[AgentMonitor] WebSocket closed');
+      updateConnectionStatus(false);
+      
+      // Reconnect after 5 seconds
+      reconnectTimeout = setTimeout(() => {
+        console.log('[AgentMonitor] Reconnecting...');
+        initWebSocket();
+      }, 5000);
+    };
+  }
+  
+  function updateConnectionStatus(connected) {
+    const dot = document.getElementById('ws-status-dot');
+    const text = document.getElementById('ws-status-text');
+    
+    if (connected) {
+      dot.classList.add('connected');
+      text.textContent = 'Connected';
+    } else {
+      dot.classList.remove('connected');
+      text.textContent = 'Disconnected (reconnecting...)';
+    }
+  }
+  
+  function handleEvent(data) {
+    console.log('[AgentMonitor] Event:', data.type || data.event, data.session);
+    
+    const eventType = data.type || data.event;
+    
+    switch (eventType) {
+      case 'state_change':
+      case 'progress':
+        updateAgent(data.session, data);
+        break;
+      
+      case 'agent_stuck':
+        updateAgent(data.session, { state: 'stuck' });
+        break;
+      
+      case 'agent_error':
+        updateAgent(data.session, { state: 'error' });
+        break;
+      
+      case 'agent_complete':
+        updateAgent(data.session, { state: 'complete' });
+        break;
+      
+      case 'command_sent':
+        console.log(`[AgentMonitor] Command sent to ${data.session}:`, data.command);
+        break;
+    }
+  }
+  
+  function fetchAgents() {
+    fetch('http://localhost:3848/api/agents')
+      .then(r => r.json())
+      .then(data => {
+        data.agents.forEach(agent => {
+          agents[agent.session] = agent;
+        });
+        renderAgents();
+      })
+      .catch(err => console.error('[AgentMonitor] Error fetching agents:', err));
+  }
+  
+  function updateAgent(session, updates) {
+    if (!agents[session]) {
+      agents[session] = { session };
+    }
+    
+    Object.assign(agents[session], updates);
+    renderAgents();
+  }
+  
+  function renderAgents() {
+    const grid = document.getElementById('agent-grid');
+    
+    if (Object.keys(agents).length === 0) {
+      grid.innerHTML = '<p style="opacity:0.6">No agents found. Start a wingman to see it here!</p>';
+      return;
+    }
+    
+    grid.innerHTML = Object.values(agents).map(agent => `
+      <div class="agent-card state-${agent.state || 'idle'}">
+        <div class="agent-header">
+          <div class="agent-name">${agent.session}</div>
+          <div class="agent-state state-${agent.state || 'idle'}">${agent.state || 'idle'}</div>
+        </div>
+        
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${agent.progress || 0}%"></div>
+        </div>
+        <div style="font-size: 0.85rem; opacity: 0.8; margin-top: 0.25rem;">
+          Progress: ${agent.progress || 0}%
+        </div>
+        
+        <div class="agent-stats">
+          <div class="stat">
+            <div class="stat-label">Files Written</div>
+            <div class="stat-value">${agent.files_written || agent.indicators?.filesWritten || 0}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Files Read</div>
+            <div class="stat-value">${agent.files_read || agent.indicators?.filesRead || 0}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Thinking</div>
+            <div class="stat-value">${agent.contemplation_time || agent.indicators?.thinkingTime || 0}s</div>
+          </div>
+        </div>
+        
+        <div class="agent-controls">
+          <button class="btn btn-primary" onclick="sendCommand('${agent.session}', '')">
+            Nudge
+          </button>
+          <button class="btn btn-secondary" onclick="viewLogs('${agent.session}')">
+            Logs
+          </button>
+          <button class="btn btn-danger" onclick="killAgent('${agent.session}')">
+            Kill
+          </button>
+        </div>
+        
+        <div class="command-input">
+          <input type="text" placeholder="Send command..." id="cmd-${agent.session}" 
+                 onkeypress="if(event.key==='Enter') sendCustomCommand('${agent.session}')">
+          <button class="btn btn-success" onclick="sendCustomCommand('${agent.session}')">
+            Send
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  window.sendCommand = function(session, command) {
+    fetch(`http://localhost:3848/api/agents/${session}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: command || '', source: 'dashboard' })
+    })
+    .then(r => r.json())
+    .then(data => {
+      console.log('[AgentMonitor] Command sent:', data);
+      alert(`✅ Command queued: ${data.jobId}`);
+    })
+    .catch(err => {
+      console.error('[AgentMonitor] Error sending command:', err);
+      alert('❌ Failed to send command');
+    });
+  };
+  
+  window.sendCustomCommand = function(session) {
+    const input = document.getElementById(`cmd-${session}`);
+    const command = input.value.trim();
+    
+    if (!command) return;
+    
+    sendCommand(session, command);
+    input.value = '';
+  };
+  
+  window.viewLogs = function(session) {
+    fetch(`http://localhost:3848/api/agents/${session}/output?lines=50`)
+      .then(r => r.json())
+      .then(data => {
+        alert(`Logs for ${session}:\n\n${data.output}`);
+      })
+      .catch(err => alert('Failed to fetch logs'));
+  };
+  
+  window.killAgent = function(session) {
+    if (!confirm(`Kill agent ${session}?`)) return;
+    
+    fetch(`http://localhost:3848/api/agents/${session}/kill`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        alert(`✅ Agent ${session} killed`);
+        delete agents[session];
+        renderAgents();
+      })
+      .catch(err => alert('Failed to kill agent'));
+  };
+  
+  // Alert Delivery Config
+  function loadAlertDeliveryConfig() {
+    fetch('/api/alerts/delivery-config')
+      .then(r => r.json())
+      .then(config => {
+        const mode = config.deliveryMode || 'system';
+        const radio = document.querySelector(`input[name="alert-delivery"][value="${mode}"]`);
+        if (radio) {
+          radio.checked = true;
+          highlightSelectedMode(mode);
+        }
+        
+        const statusEl = document.getElementById('alert-delivery-status');
+        if (statusEl) {
+          statusEl.textContent = `Current: ${mode === 'system' ? '🤖 Agent Filters' : '📱 Direct Messages'}`;
+        }
+      })
+      .catch(err => {
+        console.error('[AgentMonitor] Error loading alert delivery config:', err);
+        const statusEl = document.getElementById('alert-delivery-status');
+        if (statusEl) {
+          statusEl.textContent = 'Error loading config';
+        }
+      });
+  }
+  
+  window.updateAlertDelivery = function(mode) {
+    fetch('/api/alerts/delivery-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deliveryMode: mode })
+    })
+      .then(r => r.json())
+      .then(data => {
+        console.log('[AgentMonitor] Alert delivery mode updated:', data);
+        
+        const statusEl = document.getElementById('alert-delivery-status');
+        if (statusEl) {
+          statusEl.textContent = `Current: ${mode === 'system' ? '🤖 Agent Filters' : '📱 Direct Messages'}`;
+        }
+        
+        highlightSelectedMode(mode);
+        
+        // Show success toast
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position: fixed; top: 20px; right: 20px; background: var(--green); color: white; padding: 1rem 1.5rem; border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9999; animation: slideIn 0.3s ease;';
+        toast.textContent = `✅ Alert delivery set to: ${mode === 'system' ? 'System Events' : 'Direct Messages'}`;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+          toast.style.animation = 'slideOut 0.3s ease';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      })
+      .catch(err => {
+        console.error('[AgentMonitor] Error updating alert delivery:', err);
+        alert('❌ Failed to update alert delivery mode');
+      });
+  };
+  
+  function highlightSelectedMode(mode) {
+    // Highlight selected option
+    document.querySelectorAll('input[name="alert-delivery"]').forEach(radio => {
+      const label = radio.parentElement;
+      if (radio.value === mode) {
+        label.style.borderColor = 'var(--accent)';
+        label.style.background = 'rgba(79, 195, 247, 0.1)';
+      } else {
+        label.style.borderColor = 'var(--border)';
+        label.style.background = 'transparent';
+      }
+    });
+  }
+  
+  // Initialize when tab is shown
+  document.addEventListener('DOMContentLoaded', () => {
+    // Add tab button if not exists
+    const tabBar = document.querySelector('.tabs-nav');
+    if (tabBar && !document.querySelector('[data-tab="agent-monitor"]')) {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn';
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', 'false');
+      btn.setAttribute('data-tab', 'agent-monitor');
+      btn.onclick = () => switchTab('agent-monitor');
+      btn.textContent = 'Agent Monitor';
+      tabBar.appendChild(btn);
+    }
+    
+    initWebSocket();
+    
+    // Load alert delivery config
+    loadAlertDeliveryConfig();
+    
+    // Refresh agents every 10 seconds (fallback)
+    setInterval(fetchAgents, 10000);
+  });
+})();
+</script>
+
 </body>
 </html>
