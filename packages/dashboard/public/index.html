@@ -312,10 +312,94 @@
   }
   .model-toast.show { opacity: 1; }
 
+  /* Tab Navigation */
+  .tab-bar {
+    display: flex; gap: 0; background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 0 24px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .tab-btn {
+    padding: 12px 20px; font-size: 14px; font-weight: 500; color: var(--text2);
+    background: none; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer; white-space: nowrap; transition: color .15s, border-color .15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: flex; flex-direction: column; gap: 24px; }
+
+  /* System Health Panels */
+  .health-metric { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .health-metric:last-child { border-bottom: none; }
+  .health-metric .hm-label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+  .health-metric .hm-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .health-metric .hm-value.ok { color: var(--green); }
+  .health-metric .hm-value.warn { color: var(--yellow); }
+  .health-metric .hm-value.bad { color: var(--red); }
+  .health-metric .hm-target { font-size: 11px; color: var(--text2); }
+
+  .trust-gauge { display: flex; align-items: center; justify-content: center; padding: 16px 0; }
+  .trust-gauge .tg-score { font-size: 48px; font-weight: 800; }
+  .trust-gauge .tg-score.ok { color: var(--green); }
+  .trust-gauge .tg-score.warn { color: var(--yellow); }
+  .trust-gauge .tg-score.bad { color: var(--red); }
+  .trust-factors { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .trust-factor { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .trust-factor .tf-label { flex: 1; color: var(--text2); }
+  .trust-factor .tf-bar { flex: 2; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .trust-factor .tf-bar-fill { height: 100%; border-radius: 3px; }
+  .trust-factor .tf-value { min-width: 36px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .mini-chart { height: 80px; display: flex; align-items: flex-end; gap: 2px; padding: 8px 0; }
+  .mini-chart .mc-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-width: 12px; opacity: .8; transition: height .3s; }
+  .mini-chart .mc-bar.secondary { background: var(--yellow); opacity: .6; }
+  .mini-chart-legend { display: flex; gap: 12px; justify-content: center; margin-top: 4px; font-size: 11px; color: var(--text2); }
+  .mini-chart-legend span { display: flex; align-items: center; gap: 4px; }
+  .mini-chart-legend .leg-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  .event-list { display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto; margin-top: 12px; }
+  .event-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+  .event-item .ev-icon { font-size: 14px; }
+  .event-item .ev-type { color: var(--text2); min-width: 100px; }
+  .event-item .ev-detail { flex: 1; color: var(--text); }
+  .event-item .ev-date { color: var(--text2); }
+
+  .corrections-chart { display: flex; flex-direction: column; gap: 16px; }
+  .corrections-chart .chart-tabs { display: flex; gap: 8px; }
+  .corrections-chart .chart-tab { padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; font-size: 12px; }
+  .corrections-chart .chart-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chart-grid { display: flex; flex-direction: column; gap: 4px; }
+  .chart-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .chart-row .cr-date { min-width: 70px; color: var(--text2); }
+  .chart-row .cr-bars { flex: 1; display: flex; gap: 2px; height: 16px; align-items: center; }
+  .chart-row .cr-bar { height: 100%; border-radius: 2px; }
+  .chart-row .cr-bar.corrections { background: var(--yellow); }
+  .chart-row .cr-bar.overrides { background: var(--red); }
+  .chart-row .cr-count { min-width: 40px; text-align: right; color: var(--text2); }
+
+  /* Development Tracking */
+  .dev-agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .dev-agent-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .dev-agent-card .agent-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .dev-agent-card .agent-name { font-weight: 600; font-size: 15px; flex: 1; }
+  .dev-agent-card .agent-session { font-size: 12px; color: var(--text2); }
+  .dev-agent-card .agent-activity { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+  .dev-progress { background: var(--bg); border-radius: 4px; height: 8px; overflow: hidden; margin: 8px 0; }
+  .dev-progress-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+  .dev-agent-card .agent-output { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; color: var(--text2); max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0; display: none; }
+  .dev-agent-card .agent-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .dev-timeline { margin-top: 16px; }
+  .dev-timeline-item { display: flex; gap: 10px; padding: 6px 0; border-left: 2px solid var(--border); margin-left: 8px; padding-left: 14px; font-size: 13px; }
+  .dev-timeline-item .tl-time { color: var(--text2); min-width: 60px; font-size: 12px; }
+  .dev-alert-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .dev-alert { background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.2); border-radius: 4px; padding: 8px 12px; font-size: 13px; }
+
   @media (max-width: 768px) {
     main { padding: 12px; }
     .grid-2, .grid-3, .grid-6 { grid-template-columns: 1fr; }
     .model-switcher-dropdown { min-width: 260px; right: -40px; }
+    .tab-bar { padding: 0 12px; }
+    .tab-btn { padding: 10px 14px; font-size: 13px; }
+    .dev-agents-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -349,7 +433,18 @@
 </header>
 <div class="model-toast" id="model-toast"></div>
 
+<nav class="tab-bar" id="tab-bar" role="tablist">
+  <button class="tab-btn active" role="tab" aria-selected="true" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+  <button class="tab-btn" role="tab" aria-selected="false" data-tab="models" onclick="switchTab('models')">Models</button>
+  <button class="tab-btn" role="tab" aria-selected="false" data-tab="config" onclick="switchTab('config')">Config</button>
+  <button class="tab-btn" role="tab" aria-selected="false" data-tab="development" onclick="switchTab('development')">Development</button>
+  <button class="tab-btn" role="tab" aria-selected="false" data-tab="logs" onclick="switchTab('logs')">Logs</button>
+</nav>
+
 <main>
+  <!-- ===== TAB: Dashboard ===== -->
+  <div class="tab-panel active" id="tab-dashboard" role="tabpanel">
+
   <!-- Status Row -->
   <section class="grid grid-2">
     <div class="card" id="status-card">
@@ -372,6 +467,31 @@
   <section class="card" id="context-card">
     <h2>📊 Context Monitor</h2>
     <div id="context-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- System Health Grid: Router + Memory + Trust -->
+  <section class="grid grid-3" id="system-health-grid">
+    <!-- Router Health -->
+    <div class="card" id="router-health-card">
+      <h2>🎯 Router Health</h2>
+      <div id="router-health-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+    </div>
+    <!-- Memory Performance -->
+    <div class="card" id="memory-perf-card">
+      <h2>🧠 Memory Recall</h2>
+      <div id="memory-perf-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+    </div>
+    <!-- Trust Score -->
+    <div class="card" id="trust-card">
+      <h2>🤝 Trust Score</h2>
+      <div id="trust-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+    </div>
+  </section>
+
+  <!-- Corrections Timeline -->
+  <section class="card" id="corrections-card">
+    <h2>📈 Corrections Timeline</h2>
+    <div id="corrections-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
   <!-- Agent Monitor -->
@@ -460,31 +580,10 @@
     <div id="context-pipeline-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
-  <!-- Clawdbot Behavior -->
-  <section class="card" id="clawdbot-card">
-    <h2>🤖 Clawdbot Memory Behavior</h2>
-    <div id="clawdbot-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
-  </section>
+  </div><!-- /tab-dashboard -->
 
-  <!-- Memory Config -->
-  <section class="card" id="memory-card">
-    <h2>🧠 Memory Configuration</h2>
-    <div id="memory-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
-  </section>
-
-  <!-- Daemons -->
-  <section class="card" id="daemons-card">
-    <h2>🔄 Daemons</h2>
-    <div id="daemons-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
-  </section>
-
-  <!-- Packages -->
-  <section class="card">
-    <h2>📦 Packages</h2>
-    <div id="packages-grid" class="grid grid-6">
-      <span class="loading-text"><span class="spinner"></span> Loading...</span>
-    </div>
-  </section>
+  <!-- ===== TAB: Models ===== -->
+  <div class="tab-panel" id="tab-models" role="tabpanel">
 
   <!-- Model Manager -->
   <section class="card" id="model-mgr-card">
@@ -502,6 +601,23 @@
   <section class="card" id="routes-card">
     <h2>🚦 Route Switcher</h2>
     <div id="routes-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  </div><!-- /tab-models -->
+
+  <!-- ===== TAB: Config ===== -->
+  <div class="tab-panel" id="tab-config" role="tabpanel">
+
+  <!-- Clawdbot Behavior -->
+  <section class="card" id="clawdbot-card">
+    <h2>🤖 Clawdbot Memory Behavior</h2>
+    <div id="clawdbot-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Memory Config -->
+  <section class="card" id="memory-card">
+    <h2>🧠 Memory Configuration</h2>
+    <div id="memory-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
   <!-- RAG Inspector -->
@@ -528,6 +644,72 @@
     <div id="skills-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
+  <!-- Router Prompt Editor -->
+  <section class="card" id="router-card">
+    <h2>🧭 Router Prompt Editor</h2>
+    <div id="router-content">
+      <div class="loading-text"><span class="spinner"></span> Loading...</div>
+    </div>
+  </section>
+
+  <!-- Compaction Settings -->
+  <section class="card" id="compaction-card">
+    <h2>💾 Compaction Settings</h2>
+    <div id="compaction-content">
+      <div class="loading-text"><span class="spinner"></span> Loading...</div>
+    </div>
+  </section>
+
+  </div><!-- /tab-config -->
+
+  <!-- ===== TAB: Development ===== -->
+  <div class="tab-panel" id="tab-development" role="tabpanel">
+
+  <section class="card">
+    <h2>🚀 Development Agent Tracking</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span id="dev-last-update" style="font-size:12px;color:var(--text2)">Not loaded</span>
+      <button class="btn sm outline" onclick="loadDevAgents()">↻ Refresh</button>
+    </div>
+    <div id="dev-agents-content" class="dev-agents-grid">
+      <span class="loading-text"><span class="spinner"></span> Loading agents...</span>
+    </div>
+  </section>
+
+  <section class="grid grid-2">
+    <div class="card">
+      <h2>📋 Alerts</h2>
+      <div id="dev-alerts-content" class="dev-alert-list">
+        <div class="empty">No alerts</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📅 Timeline</h2>
+      <div id="dev-timeline-content" class="dev-timeline">
+        <div class="empty">No events</div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /tab-development -->
+
+  <!-- ===== TAB: Logs ===== -->
+  <div class="tab-panel" id="tab-logs" role="tabpanel">
+
+  <!-- Daemons -->
+  <section class="card" id="daemons-card">
+    <h2>🔄 Daemons</h2>
+    <div id="daemons-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Packages -->
+  <section class="card">
+    <h2>📦 Packages</h2>
+    <div id="packages-grid" class="grid grid-6">
+      <span class="loading-text"><span class="spinner"></span> Loading...</span>
+    </div>
+  </section>
+
   <!-- Corrections Viewer -->
   <section class="card" id="corrections-card">
     <h2>🔧 Corrections Viewer</h2>
@@ -552,26 +734,199 @@
     <div id="alerts-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
-  <!-- Router Prompt Editor -->
-  <section class="card" id="router-card">
-    <h2>🧭 Router Prompt Editor</h2>
-    <div id="router-content">
-      <div class="loading-text"><span class="spinner"></span> Loading...</div>
-    </div>
-  </section>
+  </div><!-- /tab-logs -->
 
-  <!-- Compaction Settings -->
-  <section class="card" id="compaction-card">
-    <h2>💾 Compaction Settings</h2>
-    <div id="compaction-content">
-      <div class="loading-text"><span class="spinner"></span> Loading...</div>
-    </div>
-  </section>
 </main>
 
 <script>
 const API = '';
 const $  = id => document.getElementById(id);
+
+// --- Tab Navigation ---
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-selected', 'false');
+  });
+  const panel = $('tab-' + tabId);
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+  if (panel) panel.classList.add('active');
+  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
+  // Load dev agents on first visit
+  if (tabId === 'development' && !_devLoaded) { loadDevAgents(); _devLoaded = true; }
+}
+
+// Keyboard nav for tabs
+document.addEventListener('keydown', (e) => {
+  if (!e.target.classList.contains('tab-btn')) return;
+  const tabs = [...document.querySelectorAll('.tab-btn')];
+  const idx = tabs.indexOf(e.target);
+  let next = -1;
+  if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+  else if (e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+  if (next >= 0) { tabs[next].focus(); tabs[next].click(); e.preventDefault(); }
+});
+
+// --- Development Agent Tracking ---
+let _devLoaded = false;
+let _devPollInterval = null;
+const DEV_AGENTS = [
+  { session: 'omi-phase1', name: 'Desktop: Python BLE + Omi SDK', icon: '🖥️' },
+  { session: 'omi-ios', name: 'iOS Core', icon: '📱' },
+  { session: 'ios-ui', name: 'iOS UI', icon: '🎨' },
+  { session: 'ios-audio', name: 'iOS Audio', icon: '🎵' },
+  { session: 'ios-api', name: 'iOS API', icon: '🔌' },
+];
+
+async function loadDevAgents() {
+  try {
+    const res = await fetch(API + '/api/dev/agents');
+    const agents = await res.json();
+    renderDevAgents(agents);
+    $('dev-last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    // Start polling if not already
+    if (!_devPollInterval) {
+      _devPollInterval = setInterval(() => {
+        if ($('tab-development').classList.contains('active')) loadDevAgents();
+      }, 5000);
+    }
+  } catch (e) {
+    $('dev-agents-content').textContent = 'Failed to load agents: ' + e.message;
+  }
+  // Also load alerts
+  loadDevAlerts();
+}
+
+// Safety: This dashboard is a localhost-only admin tool (no external traffic).
+// All dynamic values are escaped via escHtml() before insertion.
+// See CLAUDE.md "Dashboard security hook" for rationale.
+function renderDevAgents(agents) {
+  const el = $('dev-agents-content');
+  if (!agents || agents.length === 0) {
+    el.textContent = 'No development agents found. Start tmux sessions named omi-phase1, omi-ios, etc.';
+    return;
+  }
+  el.textContent = '';
+  agents.forEach(a => {
+    const statusColor = a.status === 'working' ? 'var(--green)' :
+                        a.status === 'stuck' ? 'var(--yellow)' : 'var(--red)';
+    const statusLabel = a.status === 'working' ? 'Working' :
+                        a.status === 'stuck' ? 'Stuck' : a.status === 'error' ? 'Error' : 'Inactive';
+    const progressPct = Math.min(100, Math.max(0, a.progress || 0));
+    const progressColor = progressPct > 60 ? 'var(--green)' : progressPct > 30 ? 'var(--yellow)' : 'var(--accent)';
+
+    const card = document.createElement('div');
+    card.className = 'dev-agent-card';
+
+    const header = document.createElement('div');
+    header.className = 'agent-header';
+    const dot = document.createElement('span');
+    dot.className = 'status-dot';
+    dot.style.background = statusColor;
+    dot.style.boxShadow = '0 0 6px ' + statusColor;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'agent-name';
+    nameSpan.textContent = (a.icon || '🔄') + ' ' + a.name;
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (a.status === 'working' ? 'green' : a.status === 'stuck' ? 'yellow' : 'red');
+    badge.textContent = statusLabel;
+    header.append(dot, nameSpan, badge);
+
+    const sessionDiv = document.createElement('div');
+    sessionDiv.className = 'agent-session';
+    sessionDiv.textContent = 'Session: ' + a.session;
+
+    const activityDiv = document.createElement('div');
+    activityDiv.className = 'agent-activity';
+    activityDiv.textContent = a.lastActivity ? 'Last activity: ' + a.lastActivity : 'No recent activity';
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'dev-progress';
+    const progressFill = document.createElement('div');
+    progressFill.className = 'dev-progress-fill';
+    progressFill.style.width = progressPct + '%';
+    progressFill.style.background = progressColor;
+    progressBar.appendChild(progressFill);
+
+    const pctLabel = document.createElement('div');
+    pctLabel.style.cssText = 'font-size:12px;color:var(--text2);text-align:right';
+    pctLabel.textContent = progressPct + '%';
+
+    const outputDiv = document.createElement('div');
+    outputDiv.className = 'agent-output';
+    outputDiv.id = 'dev-output-' + a.session;
+    if (a.lastOutput) outputDiv.textContent = a.lastOutput;
+
+    const actions = document.createElement('div');
+    actions.className = 'agent-actions';
+    const btnLogs = document.createElement('button');
+    btnLogs.className = 'btn sm outline';
+    btnLogs.textContent = 'View Logs';
+    btnLogs.addEventListener('click', () => toggleDevLogs(a.session));
+    const btnNudge = document.createElement('button');
+    btnNudge.className = 'btn sm outline';
+    btnNudge.textContent = 'Nudge';
+    btnNudge.addEventListener('click', () => nudgeDevAgent(a.session));
+    const btnKill = document.createElement('button');
+    btnKill.className = 'btn sm danger';
+    btnKill.textContent = 'Kill';
+    btnKill.addEventListener('click', () => killDevAgent(a.session));
+    actions.append(btnLogs, btnNudge, btnKill);
+
+    card.append(header, sessionDiv, activityDiv, progressBar, pctLabel, outputDiv, actions);
+    el.appendChild(card);
+  });
+}
+
+function toggleDevLogs(session) {
+  const el = $('dev-output-' + session);
+  if (!el) return;
+  if (el.style.display === 'none' || !el.style.display) {
+    el.style.display = 'block';
+    fetch(API + '/api/dev/agents/' + encodeURIComponent(session) + '/logs')
+      .then(r => r.json())
+      .then(d => { el.textContent = d.output || 'No output'; el.scrollTop = el.scrollHeight; })
+      .catch(() => { el.textContent = 'Failed to load logs'; });
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function nudgeDevAgent(session) {
+  try {
+    await fetch(API + '/api/dev/agents/' + encodeURIComponent(session) + '/nudge', { method: 'POST' });
+    logOp('Nudged agent: ' + session);
+  } catch (e) { logOp('Failed to nudge ' + session + ': ' + e.message); }
+}
+
+async function killDevAgent(session) {
+  if (!confirm('Kill tmux session "' + session + '"? This cannot be undone.')) return;
+  try {
+    await fetch(API + '/api/dev/agents/' + encodeURIComponent(session) + '/kill', { method: 'POST' });
+    logOp('Killed agent: ' + session);
+    setTimeout(loadDevAgents, 1000);
+  } catch (e) { logOp('Failed to kill ' + session + ': ' + e.message); }
+}
+
+async function loadDevAlerts() {
+  try {
+    const res = await fetch(API + '/api/dev/alerts');
+    const d = await res.json();
+    const el = $('dev-alerts-content');
+    if (!d.alerts || d.alerts.length === 0) {
+      el.textContent = 'No alerts';
+    } else {
+      el.textContent = '';
+      d.alerts.forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'dev-alert';
+        div.textContent = a;
+        el.appendChild(div);
+      });
+    }
+  } catch { /* ignore */ }
+}
 
 // --- Helpers ---
 function fmt(bytes) {
@@ -2486,6 +2841,307 @@ async function loadAlerts() {
   }
 }
 
+// --- Router Health ---
+async function loadRouterHealth() {
+  try {
+    const res = await fetch(API + '/api/router/health');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const overrideNum = parseFloat(data.overrideRate) || 0;
+    const overrideClass = overrideNum < 1 ? 'ok' : overrideNum < 5 ? 'warn' : 'bad';
+
+    const el = $('router-health-content');
+    el.textContent = '';
+
+    // Override rate metric
+    const metric1 = document.createElement('div');
+    metric1.className = 'health-metric';
+    metric1.appendChild(createEl('span', 'hm-label', 'Override Rate'));
+    metric1.appendChild(createEl('span', 'hm-value ' + overrideClass, data.overrideRate));
+    metric1.appendChild(createEl('span', 'hm-target', 'Target: < 1%'));
+    el.appendChild(metric1);
+
+    // Auto-escalations metric
+    const metric2 = document.createElement('div');
+    metric2.className = 'health-metric';
+    metric2.appendChild(createEl('span', 'hm-label', 'Auto-Escalations'));
+    metric2.appendChild(createEl('span', 'hm-value', String(data.autoEscalations || 0)));
+    el.appendChild(metric2);
+
+    // Model distribution
+    const metric3 = document.createElement('div');
+    metric3.className = 'health-metric';
+    metric3.appendChild(createEl('span', 'hm-label', 'Model Distribution'));
+    const distRow = document.createElement('div');
+    distRow.style.cssText = 'display:flex;gap:8px;margin-top:4px';
+    for (const [model, pct] of Object.entries(data.modelDistribution || {})) {
+      const short = model.replace('claude_', '').toUpperCase().slice(0, 1);
+      const badge = createEl('span', 'badge blue', short + ': ' + pct);
+      badge.title = model;
+      distRow.appendChild(badge);
+    }
+    metric3.appendChild(distRow);
+    el.appendChild(metric3);
+
+    // Mini chart for timeline
+    if (data.timeline && data.timeline.length > 0) {
+      const maxVal = Math.max(...data.timeline.map(t => (t.overrides || 0) + (t.escalations || 0)), 1);
+      const chart = document.createElement('div');
+      chart.className = 'mini-chart';
+      for (const day of data.timeline) {
+        const h = Math.max(2, ((day.overrides + day.escalations) / maxVal) * 60);
+        const bar = document.createElement('div');
+        bar.className = 'mc-bar';
+        bar.style.height = h + 'px';
+        bar.title = day.date + ': ' + day.overrides + ' overrides, ' + day.escalations + ' escalations';
+        chart.appendChild(bar);
+      }
+      el.appendChild(chart);
+    }
+  } catch (e) {
+    $('router-health-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+// --- Memory Performance ---
+async function loadMemoryPerformance() {
+  try {
+    const res = await fetch(API + '/api/memory/performance');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const missNum = parseFloat(data.missRate) || 0;
+    const missClass = missNum < 10 ? 'ok' : missNum < 20 ? 'warn' : 'bad';
+    const herdNum = parseFloat(data.herdingMessages?.avg) || 0;
+    const herdClass = herdNum < 2 ? 'ok' : herdNum < 4 ? 'warn' : 'bad';
+
+    const el = $('memory-perf-content');
+    el.textContent = '';
+
+    // Miss rate metric
+    const metric1 = document.createElement('div');
+    metric1.className = 'health-metric';
+    metric1.appendChild(createEl('span', 'hm-label', 'Miss Rate'));
+    metric1.appendChild(createEl('span', 'hm-value ' + missClass, data.missRate));
+    metric1.appendChild(createEl('span', 'hm-target', 'Target: < 10%'));
+    el.appendChild(metric1);
+
+    // Herding avg metric
+    const metric2 = document.createElement('div');
+    metric2.className = 'health-metric';
+    metric2.appendChild(createEl('span', 'hm-label', 'Herding Avg'));
+    metric2.appendChild(createEl('span', 'hm-value ' + herdClass, data.herdingMessages?.avg || '0'));
+    metric2.appendChild(createEl('span', 'hm-target', 'Target: < 2 messages'));
+    el.appendChild(metric2);
+
+    // RAG score metric
+    const metric3 = document.createElement('div');
+    metric3.className = 'health-metric';
+    metric3.appendChild(createEl('span', 'hm-label', 'Avg RAG Score'));
+    metric3.appendChild(createEl('span', 'hm-value', data.avgRAGScore));
+    el.appendChild(metric3);
+
+    // Top miss categories
+    if (data.topMissCategories && data.topMissCategories.length > 0) {
+      const catLabel = createEl('div', '', 'Top Miss Categories:');
+      catLabel.style.cssText = 'margin-top:8px;font-size:12px;color:var(--text2)';
+      el.appendChild(catLabel);
+      const catRow = document.createElement('div');
+      catRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px';
+      for (const cat of data.topMissCategories.slice(0, 3)) {
+        catRow.appendChild(createEl('span', 'badge yellow', cat.category + ': ' + cat.count));
+      }
+      el.appendChild(catRow);
+    }
+  } catch (e) {
+    $('memory-perf-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+// --- Trust Score ---
+async function loadTrustScore() {
+  try {
+    const res = await fetch(API + '/api/trust/score');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const score = data.score || 0;
+    const scoreClass = score >= 70 ? 'ok' : score >= 50 ? 'warn' : 'bad';
+    const trendIcon = data.trend === 'improving' ? '\ud83d\udcc8' : data.trend === 'declining' ? '\ud83d\udcc9' : '\u27a1\ufe0f';
+
+    const el = $('trust-content');
+    el.textContent = '';
+
+    // Trust gauge
+    const gauge = document.createElement('div');
+    gauge.className = 'trust-gauge';
+    gauge.appendChild(createEl('span', 'tg-score ' + scoreClass, String(score)));
+    const trend = createEl('span', '', trendIcon);
+    trend.style.cssText = 'font-size:24px;margin-left:8px';
+    gauge.appendChild(trend);
+    el.appendChild(gauge);
+
+    // Factor bars
+    const factors = document.createElement('div');
+    factors.className = 'trust-factors';
+    for (const [factor, value] of Object.entries(data.factors || {})) {
+      const pct = Math.min(100, Math.max(0, value));
+      const color = pct >= 70 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
+      const row = document.createElement('div');
+      row.className = 'trust-factor';
+      row.appendChild(createEl('span', 'tf-label', factor.replace(/([A-Z])/g, ' $1').trim()));
+      const barWrap = document.createElement('div');
+      barWrap.className = 'tf-bar';
+      const barFill = document.createElement('div');
+      barFill.className = 'tf-bar-fill';
+      barFill.style.cssText = 'width:' + pct + '%;background:' + color;
+      barWrap.appendChild(barFill);
+      row.appendChild(barWrap);
+      row.appendChild(createEl('span', 'tf-value', String(pct)));
+      factors.appendChild(row);
+    }
+    el.appendChild(factors);
+
+    // Recent events
+    if (data.recentEvents && data.recentEvents.length > 0) {
+      const events = document.createElement('div');
+      events.className = 'event-list';
+      for (const ev of data.recentEvents.slice(0, 5)) {
+        const icon = ev.type === 'manual_override' ? '\u26a0\ufe0f' : ev.type === 'memory_miss' ? '\ud83e\udde0' : '\u2713';
+        const row = document.createElement('div');
+        row.className = 'event-item';
+        row.appendChild(createEl('span', 'ev-icon', icon));
+        row.appendChild(createEl('span', 'ev-type', ev.type.replace(/_/g, ' ')));
+        row.appendChild(createEl('span', 'ev-detail', ev.detail || ''));
+        row.appendChild(createEl('span', 'ev-date', ev.date || ''));
+        events.appendChild(row);
+      }
+      el.appendChild(events);
+    }
+  } catch (e) {
+    $('trust-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+// --- Corrections Timeline ---
+async function loadCorrectionsTimeline() {
+  try {
+    const res = await fetch(API + '/api/corrections/timeline');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const el = $('corrections-content');
+    el.textContent = '';
+
+    // Tab buttons
+    const tabs = document.createElement('div');
+    tabs.className = 'chart-tabs';
+    ['Daily', 'Weekly', 'Monthly'].forEach(label => {
+      const btn = document.createElement('button');
+      btn.className = 'chart-tab' + (label === 'Daily' ? ' active' : '');
+      btn.textContent = label;
+      btn.onclick = () => showTimelineView(label.toLowerCase());
+      tabs.appendChild(btn);
+    });
+    el.appendChild(tabs);
+
+    // Daily view
+    const dailyData = data.daily || [];
+    const maxDaily = Math.max(...dailyData.map(d => (d.corrections || 0) + (d.overrides || 0)), 1);
+    const dailyGrid = document.createElement('div');
+    dailyGrid.className = 'chart-grid';
+    dailyGrid.id = 'timeline-daily';
+    for (const day of dailyData.slice(-10)) {
+      dailyGrid.appendChild(createTimelineRow(day.date?.slice(5) || '', day.corrections, day.overrides, maxDaily));
+    }
+    el.appendChild(dailyGrid);
+
+    // Weekly view
+    const weeklyGrid = document.createElement('div');
+    weeklyGrid.className = 'chart-grid';
+    weeklyGrid.id = 'timeline-weekly';
+    weeklyGrid.style.display = 'none';
+    for (const week of (data.weekly || [])) {
+      weeklyGrid.appendChild(createTimelineRow(week.week?.slice(5) || '', week.corrections, week.overrides, 10));
+    }
+    el.appendChild(weeklyGrid);
+
+    // Monthly view
+    const monthlyGrid = document.createElement('div');
+    monthlyGrid.className = 'chart-grid';
+    monthlyGrid.id = 'timeline-monthly';
+    monthlyGrid.style.display = 'none';
+    for (const month of (data.monthly || [])) {
+      monthlyGrid.appendChild(createTimelineRow(month.month || '', month.corrections, month.overrides, 20));
+    }
+    el.appendChild(monthlyGrid);
+
+    // Legend
+    const legend = document.createElement('div');
+    legend.className = 'mini-chart-legend';
+    const leg1 = document.createElement('span');
+    const dot1 = document.createElement('span');
+    dot1.className = 'leg-dot';
+    dot1.style.background = 'var(--yellow)';
+    leg1.appendChild(dot1);
+    leg1.appendChild(document.createTextNode(' Corrections'));
+    const leg2 = document.createElement('span');
+    const dot2 = document.createElement('span');
+    dot2.className = 'leg-dot';
+    dot2.style.background = 'var(--red)';
+    leg2.appendChild(dot2);
+    leg2.appendChild(document.createTextNode(' Overrides'));
+    legend.appendChild(leg1);
+    legend.appendChild(leg2);
+    el.appendChild(legend);
+  } catch (e) {
+    $('corrections-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+function createTimelineRow(label, corrections, overrides, maxVal) {
+  const corrW = Math.max(0, (corrections / maxVal) * 100);
+  const overW = Math.max(0, (overrides / maxVal) * 100);
+  const row = document.createElement('div');
+  row.className = 'chart-row';
+  row.appendChild(createEl('span', 'cr-date', label));
+  const bars = document.createElement('div');
+  bars.className = 'cr-bars';
+  if (corrW > 0) {
+    const corrBar = document.createElement('div');
+    corrBar.className = 'cr-bar corrections';
+    corrBar.style.width = corrW + '%';
+    bars.appendChild(corrBar);
+  }
+  if (overW > 0) {
+    const overBar = document.createElement('div');
+    overBar.className = 'cr-bar overrides';
+    overBar.style.width = overW + '%';
+    bars.appendChild(overBar);
+  }
+  row.appendChild(bars);
+  row.appendChild(createEl('span', 'cr-count', String(corrections + overrides)));
+  return row;
+}
+
+function createEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text) el.textContent = text;
+  return el;
+}
+
+function showTimelineView(view) {
+  ['daily', 'weekly', 'monthly'].forEach(v => {
+    const el = $('timeline-' + v);
+    if (el) el.style.display = v === view ? 'flex' : 'none';
+  });
+  document.querySelectorAll('.chart-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === view);
+  });
+}
+
 async function loadRouter() {
   try {
     const res = await fetch('/api/router/prompt');
@@ -3203,7 +3859,7 @@ document.addEventListener('click', (e) => {
 });
 
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher()]);
+  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher(), loadRouterHealth(), loadMemoryPerformance(), loadTrustScore(), loadCorrectionsTimeline()]);
   connectWs();
 
   // Set up export diagnostics button
@@ -3223,6 +3879,8 @@ document.addEventListener('click', (e) => {
   setInterval(loadModelSwitcher, 30000);
   // Refresh economics every 120s
   setInterval(loadEconomics, 120000);
+  // Refresh system health panels every 60s
+  setInterval(() => { loadRouterHealth(); loadMemoryPerformance(); loadTrustScore(); loadCorrectionsTimeline(); }, 60000);
 })();
 </script>
 </body>

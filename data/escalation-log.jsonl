@@ -1,0 +1,1 @@
+{"timestamp":"2026-02-05T19:47:27.538Z","type":"auto_escalation","query":"use our live-translation-local pipeline for this","signals":["use our","live-translation-local"],"category":"historical_project","originalRoute":"claude_haiku","escalatedTo":"claude_opus","reason":"User referencing past work on known project"}

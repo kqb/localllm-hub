@@ -1,0 +1,21 @@
+{
+  "initialized": "2026-02-05T00:00:00.000Z",
+  "current": {
+    "score": 96,
+    "factors": {
+      "routerAccuracy": 95,
+      "memoryRecall": 100,
+      "taskCompletion": 90
+    },
+    "trend": "stable"
+  },
+  "events": [
+    {
+      "type": "manual_override",
+      "impact": -5,
+      "date": "2026-02-05",
+      "detail": "claude_opus"
+    }
+  ],
+  "lastUpdated": "2026-02-05T20:10:42.048Z"
+}

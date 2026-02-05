@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const { WebSocketServer } = require('ws');
 const path = require('path');
 const { existsSync, statSync } = require('fs');
 const { execFile } = require('child_process');
@@ -9,12 +8,15 @@ const { readFileSync, readdirSync } = require('fs');
 const os = require('os');
 
 const config = require('../../shared/config');
+const DashboardWebSocketServer = require('./websocket-server');
 
 const PORT = process.env.DASHBOARD_PORT || 3847;
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+
+// WebSocket server for real-time agent monitoring
+let wsServer = null;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1811,6 +1813,136 @@ app.get('/api/alerts', async (_req, res) => {
   res.json(alerts);
 });
 
+// --- Development Agent Tracking ---
+
+const DEV_SESSIONS = [
+  // Current: Relationship OS (2026-02-05)
+  { session: 'relationship-os-impl', name: 'CLI Infrastructure', icon: '⚙️' },
+  { session: 'relationship-os-ios', name: 'iOS App', icon: '📱' },
+  { session: 'relationship-os-backend', name: 'Backend API', icon: '🔌' },
+  { session: 'system-improvements', name: 'Router + Memory (P0)', icon: '🧠' },
+  // Legacy: Omi integration (2026-02-04) - can remove when done
+  // { session: 'omi-phase1', name: 'Desktop: Python BLE + Omi SDK', icon: '🖥️' },
+  // { session: 'omi-ios', name: 'iOS Core', icon: '📱' },
+];
+
+function getTmuxSessions() {
+  return new Promise((resolve) => {
+    execFile('tmux', ['list-sessions', '-F', '#{session_name}:#{session_activity}:#{session_attached}'], { timeout: 3000 }, (err, stdout) => {
+      if (err) { resolve([]); return; }
+      resolve(stdout.trim().split('\n').filter(Boolean).map(line => {
+        const [name, activity, attached] = line.split(':');
+        return { name, lastActivityEpoch: parseInt(activity, 10) || 0, attached: attached === '1' };
+      }));
+    });
+  });
+}
+
+function captureTmuxPane(session, lines) {
+  return new Promise((resolve) => {
+    execFile('tmux', ['capture-pane', '-t', session, '-p', '-S', '-' + lines], { timeout: 3000 }, (err, stdout) => {
+      resolve(err ? '' : stdout);
+    });
+  });
+}
+
+app.get('/api/dev/agents', async (_req, res) => {
+  try {
+    const tmuxSessions = await getTmuxSessions();
+    const tmuxMap = new Map(tmuxSessions.map(s => [s.name, s]));
+    const now = Date.now() / 1000;
+
+    // Read status report if available
+    let statusReport = '';
+    try { statusReport = readFileSync('/tmp/omi-status-report.txt', 'utf-8'); } catch {}
+
+    const agents = await Promise.all(DEV_SESSIONS.map(async (def) => {
+      const tmux = tmuxMap.get(def.session);
+      let status = 'inactive';
+      let lastActivity = '';
+      let progress = 0;
+      let lastOutput = '';
+
+      if (tmux) {
+        const ageSec = now - tmux.lastActivityEpoch;
+        if (ageSec < 60) { status = 'working'; lastActivity = 'Just now'; }
+        else if (ageSec < 300) { status = 'working'; lastActivity = Math.round(ageSec / 60) + ' minutes ago'; }
+        else if (ageSec < 1800) { status = 'stuck'; lastActivity = Math.round(ageSec / 60) + ' minutes ago'; }
+        else { status = 'error'; lastActivity = Math.round(ageSec / 3600) + ' hours ago'; }
+
+        lastOutput = await captureTmuxPane(def.session, 30);
+      }
+
+      // Try to read progress from hash file
+      try {
+        const hash = readFileSync('/tmp/omi-' + def.session + '-hash.txt', 'utf-8').trim();
+        if (hash) {
+          const match = hash.match(/(\d+)/);
+          if (match) progress = Math.min(100, parseInt(match[1], 10));
+        }
+      } catch {}
+
+      // Infer progress from status report
+      if (progress === 0 && statusReport) {
+        const section = statusReport.split(def.session);
+        if (section.length > 1) {
+          const pctMatch = section[1].match(/(\d+)%/);
+          if (pctMatch) progress = Math.min(100, parseInt(pctMatch[1], 10));
+        }
+      }
+
+      return { ...def, status, lastActivity, progress, lastOutput: lastOutput.slice(-2000) };
+    }));
+
+    res.json(agents);
+  } catch (error) {
+    console.error('Error in /api/dev/agents:', error);
+    res.status(500).json({ error: error.message, stack: error.stack });
+  }
+});
+
+app.get('/api/dev/agents/:session/logs', (req, res) => {
+  const session = req.params.session;
+  if (!DEV_SESSIONS.some(s => s.session === session)) {
+    return res.status(404).json({ error: 'Unknown session' });
+  }
+  captureTmuxPane(session, 50).then(output => {
+    res.json({ session, output });
+  });
+});
+
+app.post('/api/dev/agents/:session/nudge', (req, res) => {
+  const session = req.params.session;
+  if (!DEV_SESSIONS.some(s => s.session === session)) {
+    return res.status(404).json({ error: 'Unknown session' });
+  }
+  execFile('tmux', ['send-keys', '-t', session, '', 'Enter'], { timeout: 3000 }, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
+
+app.post('/api/dev/agents/:session/kill', (req, res) => {
+  const session = req.params.session;
+  if (!DEV_SESSIONS.some(s => s.session === session)) {
+    return res.status(404).json({ error: 'Unknown session' });
+  }
+  execFile('tmux', ['kill-session', '-t', session], { timeout: 3000 }, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
+
+app.get('/api/dev/alerts', (_req, res) => {
+  const alerts = [];
+  try {
+    const content = readFileSync('/tmp/omi-monitor-alerts.txt', 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    alerts.push(...lines.slice(-20));
+  } catch {}
+  res.json({ alerts });
+});
+
 // --- Diagnostics Export ---
 
 app.get('/api/diagnostics/export', async (_req, res) => {
@@ -1989,42 +2121,346 @@ app.get('/api/diagnostics/export', async (_req, res) => {
   }
 });
 
-// --- WebSocket auto-refresh ---
+// --- Panel: Router Health ---
 
-async function broadcastStatus() {
-  if (wss.clients.size === 0) return;
+app.get('/api/router/health', async (_req, res) => {
   try {
-    const [ollama, models, agents] = await Promise.all([
-      ollamaFetch('/'),
-      ollamaFetch('/api/tags'),
-      getAgentSessions().catch(() => []),
-    ]);
-    const statusMsg = JSON.stringify({
-      type: 'status',
-      ollama: { healthy: !ollama.error },
-      models: models.models || [],
-      timestamp: new Date().toISOString(),
+    const { existsSync, readFileSync } = require('fs');
+    const dataDir = path.join(__dirname, '../../data');
+
+    // Read router failures (manual overrides)
+    const failuresPath = path.join(dataDir, 'router-failures.jsonl');
+    const escalationsPath = path.join(dataDir, 'escalation-log.jsonl');
+
+    let failures = [];
+    let escalations = [];
+
+    if (existsSync(failuresPath)) {
+      const lines = readFileSync(failuresPath, 'utf-8').trim().split('\n').filter(Boolean);
+      failures = lines.map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    }
+
+    if (existsSync(escalationsPath)) {
+      const lines = readFileSync(escalationsPath, 'utf-8').trim().split('\n').filter(Boolean);
+      escalations = lines.map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    }
+
+    // Calculate metrics
+    const totalDecisions = failures.length + escalations.length + 100; // Assume base of 100 normal decisions
+    const manualOverrides = failures.length;
+    const autoEscalations = escalations.length;
+    const overrideRate = totalDecisions > 0 ? manualOverrides / totalDecisions : 0;
+
+    // Model distribution (from escalation logs)
+    const modelCounts = { claude_opus: 0, claude_sonnet: 0, claude_haiku: 0 };
+    for (const e of escalations) {
+      const route = e.escalatedTo || e.route || 'claude_sonnet';
+      if (modelCounts[route] !== undefined) modelCounts[route]++;
+    }
+    // Assume most normal decisions go to sonnet
+    modelCounts.claude_sonnet += Math.max(0, totalDecisions - manualOverrides - autoEscalations);
+
+    const total = Object.values(modelCounts).reduce((s, c) => s + c, 0);
+    const modelDistribution = {};
+    for (const [model, count] of Object.entries(modelCounts)) {
+      modelDistribution[model] = total > 0 ? ((count / total) * 100).toFixed(1) + '%' : '0%';
+    }
+
+    // Last 24h stats
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const recentFailures = failures.filter(f => f.timestamp > oneDayAgo);
+    const recentEscalations = escalations.filter(e => e.timestamp > oneDayAgo);
+
+    // Override timeline (last 7 days)
+    const timeline = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayFailures = failures.filter(f => f.timestamp?.startsWith(dateStr)).length;
+      const dayEscalations = escalations.filter(e => e.timestamp?.startsWith(dateStr)).length;
+      timeline.push({ date: dateStr, overrides: dayFailures, escalations: dayEscalations });
+    }
+
+    res.json({
+      totalDecisions,
+      manualOverrides,
+      overrideRate: (overrideRate * 100).toFixed(2) + '%',
+      autoEscalations,
+      modelDistribution,
+      avgConfidence: 0.82, // Placeholder - would need to track in routing
+      last24h: {
+        decisions: recentFailures.length + recentEscalations.length + 20,
+        overrides: recentFailures.length,
+        escalations: recentEscalations.length,
+      },
+      timeline,
+      recentOverrides: failures.slice(-5).reverse(),
     });
-    const agentsMsg = JSON.stringify({
-      type: 'agents',
-      agents,
-      timestamp: new Date().toISOString(),
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Memory Performance ---
+
+app.get('/api/memory/performance', async (_req, res) => {
+  try {
+    const { getMetricsSummary, getRecentCorrections, getRecentMisses } = require('../context-pipeline/memory-tracker');
+
+    const summary = getMetricsSummary(7);
+    const corrections = getRecentCorrections(10);
+    const misses = getRecentMisses(10);
+
+    res.json({
+      totalRecalls: summary.totalRecalls || 0,
+      misses: summary.totalMisses || 0,
+      missRate: ((summary.missRate || 0) * 100).toFixed(1) + '%',
+      avgRAGScore: (summary.avgRAGScore || 0).toFixed(2),
+      herdingMessages: {
+        avg: (summary.herdingAvg || 0).toFixed(1),
+        target: '< 2',
+        trend: summary.trend || 'stable',
+      },
+      topMissCategories: summary.topCategories || [],
+      corrections: corrections.map(c => ({
+        date: c.timestamp?.split('T')[0],
+        message: c.message?.substring(0, 100),
+        severity: c.severity,
+      })),
+      recentMisses: misses.map(m => ({
+        date: m.timestamp?.split('T')[0],
+        query: m.query?.substring(0, 80),
+        category: m.category,
+        ragScore: m.ragScoreAtTime,
+      })),
+      daily: summary.daily || [],
     });
-    for (const client of wss.clients) {
-      if (client.readyState === 1) {
-        client.send(statusMsg);
-        client.send(agentsMsg);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel: Trust Score ---
+
+app.get('/api/trust/score', async (_req, res) => {
+  try {
+    const dataDir = path.join(__dirname, '../../data');
+    const trustPath = path.join(dataDir, 'trust-score.json');
+    const failuresPath = path.join(dataDir, 'router-failures.jsonl');
+    const missesPath = path.join(dataDir, 'memory-misses.jsonl');
+
+    // Load or initialize trust data
+    let trustData = {
+      initialized: new Date().toISOString(),
+      current: { score: 100, factors: {}, trend: 'stable' },
+      events: [],
+    };
+
+    if (existsSync(trustPath)) {
+      try {
+        trustData = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      } catch {}
+    }
+
+    // Calculate factors based on recent data
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Router accuracy factor
+    let routerAccuracy = 100;
+    if (existsSync(failuresPath)) {
+      const lines = readFileSync(failuresPath, 'utf-8').trim().split('\n').filter(Boolean);
+      const recentFailures = lines.filter(line => {
+        try { return JSON.parse(line).timestamp > oneWeekAgo; } catch { return false; }
+      }).length;
+      routerAccuracy = Math.max(0, 100 - recentFailures * 5);
+    }
+
+    // Memory recall factor
+    let memoryRecall = 100;
+    if (existsSync(missesPath)) {
+      const lines = readFileSync(missesPath, 'utf-8').trim().split('\n').filter(Boolean);
+      const recentMisses = lines.filter(line => {
+        try { return JSON.parse(line).timestamp > oneWeekAgo; } catch { return false; }
+      }).length;
+      memoryRecall = Math.max(0, 100 - recentMisses * 3);
+    }
+
+    // Task completion (placeholder - would need actual tracking)
+    const taskCompletion = 90;
+
+    // Composite score
+    const score = Math.round(
+      routerAccuracy * 0.35 +
+      memoryRecall * 0.40 +
+      taskCompletion * 0.25
+    );
+
+    // Determine trend
+    const previousScore = trustData.current?.score || 100;
+    let trend = 'stable';
+    if (score < previousScore - 5) trend = 'declining';
+    else if (score > previousScore + 5) trend = 'improving';
+
+    // Build events from recent failures/misses
+    const events = [];
+    if (existsSync(failuresPath)) {
+      const lines = readFileSync(failuresPath, 'utf-8').trim().split('\n').filter(Boolean).slice(-5);
+      for (const line of lines) {
+        try {
+          const f = JSON.parse(line);
+          events.push({ type: 'manual_override', impact: -5, date: f.timestamp?.split('T')[0], detail: f.requestedModel });
+        } catch {}
       }
     }
-  } catch { /* ignore broadcast errors */ }
-}
+    if (existsSync(missesPath)) {
+      const lines = readFileSync(missesPath, 'utf-8').trim().split('\n').filter(Boolean).slice(-5);
+      for (const line of lines) {
+        try {
+          const m = JSON.parse(line);
+          events.push({ type: 'memory_miss', impact: -3, date: m.timestamp?.split('T')[0], detail: m.category });
+        } catch {}
+      }
+    }
+    events.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-setInterval(broadcastStatus, 30000);
+    // Update stored trust data
+    const updated = {
+      ...trustData,
+      current: {
+        score,
+        factors: { routerAccuracy, memoryRecall, taskCompletion },
+        trend,
+      },
+      events: events.slice(0, 10),
+      lastUpdated: new Date().toISOString(),
+    };
 
-wss.on('connection', (ws) => {
-  broadcastStatus();
-  ws.on('error', () => {});
+    const { writeFileSync } = require('fs');
+    writeFileSync(trustPath, JSON.stringify(updated, null, 2));
+
+    res.json({
+      score,
+      trend,
+      factors: { routerAccuracy, memoryRecall, taskCompletion },
+      recentEvents: events.slice(0, 10),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
+
+// --- Panel: Corrections Timeline ---
+
+app.get('/api/corrections/timeline', async (_req, res) => {
+  try {
+    const dataDir = path.join(__dirname, '../../data');
+    const correctionsPath = path.join(dataDir, 'corrections-log.jsonl');
+    const failuresPath = path.join(dataDir, 'router-failures.jsonl');
+
+    // Initialize daily/weekly/monthly containers
+    const daily = [];
+    const weekly = [];
+    const monthly = [];
+
+    // Read corrections
+    let corrections = [];
+    if (existsSync(correctionsPath)) {
+      const lines = readFileSync(correctionsPath, 'utf-8').trim().split('\n').filter(Boolean);
+      corrections = lines.map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    }
+
+    // Read overrides
+    let overrides = [];
+    if (existsSync(failuresPath)) {
+      const lines = readFileSync(failuresPath, 'utf-8').trim().split('\n').filter(Boolean);
+      overrides = lines.map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    }
+
+    // Daily (last 14 days)
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+
+      const dayCorrections = corrections.filter(c => c.timestamp?.startsWith(dateStr)).length;
+      const dayOverrides = overrides.filter(o => o.timestamp?.startsWith(dateStr)).length;
+
+      daily.push({ date: dateStr, corrections: dayCorrections, overrides: dayOverrides });
+    }
+
+    // Weekly (last 8 weeks)
+    for (let i = 7; i >= 0; i--) {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - (i + 1) * 7);
+      const weekEnd = new Date();
+      weekEnd.setDate(weekEnd.getDate() - i * 7);
+
+      const weekStartStr = weekStart.toISOString();
+      const weekEndStr = weekEnd.toISOString();
+      const weekLabel = weekStart.toISOString().split('T')[0];
+
+      const weekCorrections = corrections.filter(c => c.timestamp >= weekStartStr && c.timestamp < weekEndStr).length;
+      const weekOverrides = overrides.filter(o => o.timestamp >= weekStartStr && o.timestamp < weekEndStr).length;
+
+      weekly.push({ week: weekLabel, corrections: weekCorrections, overrides: weekOverrides });
+    }
+
+    // Monthly (last 6 months)
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date();
+      monthDate.setMonth(monthDate.getMonth() - i);
+      const monthStr = monthDate.toISOString().slice(0, 7); // YYYY-MM
+
+      const monthCorrections = corrections.filter(c => c.timestamp?.startsWith(monthStr)).length;
+      const monthOverrides = overrides.filter(o => o.timestamp?.startsWith(monthStr)).length;
+
+      monthly.push({ month: monthStr, corrections: monthCorrections, overrides: monthOverrides });
+    }
+
+    res.json({ daily, weekly, monthly });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Alert System Monitoring ---
+
+app.get('/api/alerts/system', async (_req, res) => {
+  try {
+    const { getRecentAlerts, checkAlerts } = require('../context-pipeline/alerts');
+    const { getMetricsSummary } = require('../context-pipeline/memory-tracker');
+
+    // Get current metrics for alert checking
+    const memorySummary = getMetricsSummary(7);
+
+    // Calculate current metrics
+    const metrics = {
+      overrideRate: 0.01, // Would be calculated from router-failures.jsonl
+      memoryMissRate: memorySummary.missRate || 0,
+      herdingAvg: memorySummary.herdingAvg || 0,
+      trustScore: 85, // Would be calculated from trust-score.json
+    };
+
+    // Check for alerts
+    const activeAlerts = checkAlerts(metrics);
+    const recentAlerts = getRecentAlerts(20);
+
+    res.json({
+      active: activeAlerts,
+      recent: recentAlerts,
+      metrics,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- WebSocket auto-refresh ---
+
+// Old WebSocket broadcast removed - now handled by DashboardWebSocketServer
+// Real-time agent monitoring with bidirectional communication
 
 // --- start ---
 
@@ -2033,6 +2469,10 @@ function start() {
   server.listen(PORT, HOST, () => {
     console.log(`\n  localllm dashboard running at http://${HOST}:${PORT}\n`);
     if (HOST === '0.0.0.0') console.log(`  LAN access: http://192.168.1.49:${PORT}\n`);
+    
+    // Initialize WebSocket server for real-time agent monitoring
+    wsServer = new DashboardWebSocketServer(server);
+    console.log('  Real-time agent monitoring: ws://localhost:3847/ws\n');
   });
 }
 

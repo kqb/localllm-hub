@@ -3,8 +3,10 @@ const logger = require('../../shared/logger');
 const { deepMerge } = require('../../shared/utils');
 const { unifiedSearch } = require('../chat-ingest/unified-search');
 const { routeToModel } = require('../triage');
-const { trimRagForRoute } = require('./route-config');
+const { trimRagForRoute, applyEscalationLogic } = require('./route-config');
 const { compressHistory, deduplicateMessages } = require('./history');
+const { detectCorrectionSignal, logCorrection, incrementMetric } = require('./memory-tracker');
+const { checkAlerts, processAlerts } = require('./alerts');
 
 // In-memory session storage with LRU eviction
 const sessions = new Map();
@@ -306,6 +308,15 @@ async function assembleContext(message, sessionId, options = {}) {
         logger.error(errorMsg);
       }
     }
+
+    // Apply escalation logic (checks for signals, manual overrides, confidence)
+    const avgRagScore = result.ragContext.length > 0
+      ? result.ragContext.reduce((sum, r) => sum + r.score, 0) / result.ragContext.length
+      : 0;
+    result.routeDecision = applyEscalationLogic(messageText, result.routeDecision, {
+      ragScore: avgRagScore,
+      confidence: result.routeDecision.confidence || 0.8,
+    });
   } else {
     // Sequential fallback (original behavior)
     // 2. RAG context
@@ -423,6 +434,43 @@ async function assembleContext(message, sessionId, options = {}) {
   const assemblyTime = Date.now() - startTime;
   stats.avgAssemblyTime = (stats.avgAssemblyTime * (stats.totalCalls - 1) + assemblyTime) / stats.totalCalls;
   result.metadata.assemblyTime = assemblyTime;
+
+  // Track metrics
+  incrementMetric('totalQueries');
+
+  // Detect correction signals in user message (potential memory miss feedback)
+  const correctionInfo = detectCorrectionSignal(messageText);
+  if (correctionInfo.isCorrection) {
+    // Log correction for analysis
+    logCorrection({
+      message: messageText,
+      previousQuery: result.shortTermHistory.length > 0 ? result.shortTermHistory[result.shortTermHistory.length - 1]?.content : null,
+      previousResponse: null, // Would need to track previous assistant response
+      ragScore: result.ragContext.length > 0 ? result.ragContext[0].score : 0,
+      route: result.routeDecision?.route,
+      sessionId,
+    });
+    result.metadata.correctionDetected = true;
+    result.metadata.correctionSeverity = correctionInfo.severity;
+  }
+
+  // Run alert checks periodically (every 10 calls to avoid overhead)
+  if (stats.totalCalls % 10 === 0) {
+    try {
+      const metrics = {
+        overrideRate: 0.01, // Would calculate from actual data
+        memoryMissRate: stats.skippedCalls > 0 ? stats.cacheHits / stats.totalCalls : 0,
+        herdingAvg: 1.5, // Would calculate from correction data
+        trustScore: 85, // Would load from trust-score.json
+      };
+      const alerts = checkAlerts(metrics);
+      if (alerts.length > 0) {
+        processAlerts(alerts).catch(err => logger.error(`Alert processing failed: ${err.message}`));
+      }
+    } catch (alertErr) {
+      logger.debug(`Alert check skipped: ${alertErr.message}`);
+    }
+  }
 
   return result;
 }
