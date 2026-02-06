@@ -128,14 +128,9 @@ class DashboardWebSocketServer {
       }
     });
     
-    // Start monitoring
-    const targetSessions = [
-      'relationship-os-impl',
-      'relationship-os-ios',
-      'relationship-os-backend',
-      'system-improvements',
-    ];
-    this.monitor.start(targetSessions);
+    // Start monitoring - auto-detect all Claude-related tmux sessions
+    // Pass empty array to enable auto-detection in monitor.js
+    this.monitor.start([]);
 
     // Start batch flush timer if batching is enabled
     const config = this.alertManager.getConfig();
@@ -143,7 +138,7 @@ class DashboardWebSocketServer {
       this.startBatchFlushTimer();
     }
 
-    console.log('[WebSocket] Server initialized, monitoring', targetSessions.length, 'sessions');
+    console.log('[WebSocket] Server initialized with auto-detection');
   }
 
   startBatchFlushTimer() {

@@ -2794,6 +2794,10 @@ app.post('/api/alerts/delivery-config', (req, res) => {
 // --- SPA fallback ---
 // Serve index.html for all non-API routes (React Router support)
 app.get('*', (req, res) => {
+  // Don't catch API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found', path: req.path });
+  }
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   if (existsSync(indexPath)) {
     res.sendFile(indexPath);
