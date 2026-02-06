@@ -9,6 +9,7 @@ const TmuxControlMode = require('./tmux-control');
 const SignalParser = require('./signal-parser');
 const { SessionState } = require('./session-state');
 const WebhookDispatcher = require('./webhook');
+const Persistence = require('./persistence');
 const { execFileSync } = require('child_process');
 
 class AgentWatcher {
@@ -17,6 +18,7 @@ class AgentWatcher {
     this.sessions = new Map(); // sessionName -> SessionState
     this.dispatcher = new WebhookDispatcher(options.webhook || {});
     this.parser = SignalParser;
+    this.persistence = new Persistence(options.persistencePath);
 
     // Configuration
     this.scanInterval = options.scanInterval || 10000; // 10s
@@ -38,8 +40,12 @@ class AgentWatcher {
       return;
     }
 
+    // Try to restore state from persistence
+    const savedState = await this.persistence.loadSessionState(sessionName);
+    console.log(`[Watcher] Restored state for ${sessionName}: ${savedState.state} (${savedState.history.length} signals in history)`);
+
     // Create state machine for this session
-    const state = new SessionState(sessionName);
+    const state = new SessionState(sessionName, savedState);
     this.sessions.set(sessionName, state);
 
     // Wire up event handlers
@@ -78,7 +84,18 @@ class AgentWatcher {
         // Process each signal
         for (const signal of signals) {
           console.log(`[Watcher] ${sessionName} signal: ${signal.type} ${signal.payload || ''}`);
-          state.handleSignal(signal);
+
+          // Add timestamp if not present
+          const timestampedSignal = {
+            ...signal,
+            ts: signal.ts || Date.now(),
+          };
+
+          // Persist signal to log
+          this.persistence.logSignal(sessionName, timestampedSignal);
+
+          // Update state machine
+          state.handleSignal(timestampedSignal);
         }
       });
 
@@ -215,6 +232,9 @@ class AgentWatcher {
     // Disconnect all sessions
     this.tmux.disconnectAll();
     this.sessions.clear();
+
+    // Close persistence stream
+    this.persistence.close();
 
     console.log('[Watcher] Stopped.');
     process.exit(0);

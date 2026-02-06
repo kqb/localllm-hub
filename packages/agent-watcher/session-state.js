@@ -17,13 +17,24 @@ const States = {
 };
 
 class SessionState extends EventEmitter {
-  constructor(sessionName) {
+  constructor(sessionName, savedState = null) {
     super();
     this.session = sessionName;
-    this.state = States.SPAWNED;
-    this.progress = 0;
-    this.lastActivity = Date.now();
-    this.history = []; // Last N signals with timestamps
+
+    // Restore from saved state if available
+    if (savedState && savedState.history.length > 0) {
+      this.state = savedState.state;
+      this.progress = savedState.progress;
+      this.history = savedState.history.slice(-50); // Keep last 50
+      this.lastActivity = savedState.history[savedState.history.length - 1]?.ts || Date.now();
+    } else {
+      // Fresh session
+      this.state = States.SPAWNED;
+      this.progress = 0;
+      this.lastActivity = Date.now();
+      this.history = []; // Last N signals with timestamps
+    }
+
     this.maxHistory = 50; // Keep last 50 signals
   }
 

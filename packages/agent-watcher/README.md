@@ -18,6 +18,37 @@ cd ~/Projects/localllm-hub
 npm install
 ```
 
+### Install as Launchd Service (Recommended)
+
+Run the watcher as a system daemon that auto-starts on login:
+
+```bash
+cd packages/agent-watcher
+npm run install-service
+```
+
+This will:
+- Install the watcher as a launchd user agent
+- Configure it to start automatically on login
+- Set up log files at `/tmp/agent-watcher.log`
+- Enable persistence at `/tmp/agent-watcher-history.jsonl`
+
+**Service management:**
+
+```bash
+# Check if running
+launchctl list | grep agent-watcher
+
+# Stop service
+launchctl unload ~/Library/LaunchAgents/com.localllm.agent-watcher.plist
+
+# Start service
+launchctl load ~/Library/LaunchAgents/com.localllm.agent-watcher.plist
+
+# View logs
+tail -f /tmp/agent-watcher.log
+```
+
 ## Usage
 
 ### Start the Watcher Daemon
@@ -186,6 +217,45 @@ const watcher = new AgentWatcher({
 await watcher.start();
 ```
 
+### 6. Persistence (`persistence.js`)
+
+Append-only JSONL logging for signal history. Enables state reconstruction after watcher restarts:
+
+```javascript
+const Persistence = require('./persistence');
+
+const persist = new Persistence('/tmp/agent-watcher-history.jsonl');
+
+// Log a signal
+persist.logSignal('my-session', {
+  type: 'PROGRESS',
+  payload: '50',
+  ts: Date.now()
+});
+
+// Restore session state after restart
+const state = await persist.loadSessionState('my-session');
+// Returns: { state: 'working', progress: 50, history: [...] }
+
+// Get recent activity across all sessions
+const recent = await persist.getRecentActivity(60); // last 60 minutes
+```
+
+**How it works:**
+
+- Every signal is appended to a JSONL file as a single line (atomic write, no locking)
+- On watcher restart, state is reconstructed by replaying signals from the log
+- Enables reconnect to existing tmux sessions without losing context
+- Fast tail/grep operations for debugging and analytics
+
+**JSONL format:**
+
+```json
+{"session":"my-agent","type":"PROGRESS","payload":"25","ts":1707187234567}
+{"session":"my-agent","type":"PROGRESS","payload":"50","ts":1707187245678}
+{"session":"my-agent","type":"DONE","payload":"Task complete","ts":1707187256789}
+```
+
 ## Testing
 
 ```bash
@@ -234,6 +304,9 @@ The agent watcher data will be exposed via the localllm-hub dashboard at `http:/
 ✅ `:::ERROR:msg:::` triggers notification with error
 ✅ Watcher auto-detects new tmux sessions
 ✅ Watcher survives session death gracefully
+✅ Signals are persisted to JSONL log
+✅ Watcher reconnects to existing sessions after restart
+✅ Launchd service auto-starts on login
 ⏳ Dashboard shows real-time state per session (next: dashboard integration)
 
 ## Architecture Insights
@@ -248,9 +321,11 @@ The agent watcher data will be exposed via the localllm-hub dashboard at `http:/
 
 ★ **Zero external dependencies**: Pure Node.js stdlib. Only runtime dependencies are tmux (for monitoring) and clawdbot CLI (for webhooks).
 
+★ **Persistence via JSONL**: Append-only logging ensures signals are never lost. After a watcher restart (crash, system reboot), state is reconstructed by replaying the signal log. Fast, simple, debuggable.
+
 ## Next Steps
 
-1. **Dashboard integration** - Add agent watcher panel to localllm-hub dashboard
+1. **Dashboard integration** - Add agent watcher panel to localllm-hub dashboard with live signal feed
 2. **Wingman integration** - Update `claude-code-wingman` skill to inject signal protocol into prompts
-3. **Launchd service** - Create plist for running watcher as a daemon
-4. **Advanced routing** - Route different signal types to different Clawdbot channels (errors → urgent, progress → status)
+3. **Advanced routing** - Route different signal types to different Clawdbot channels (errors → urgent, progress → status)
+4. **Analytics** - Daily/weekly summaries of agent productivity (completion rate, average task duration, stuck sessions)
