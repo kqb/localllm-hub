@@ -13,6 +13,15 @@ export const queryKeys = {
   memoryConfig: ['memory', 'config'] as const,
   chatSessions: ['chat', 'sessions'] as const,
   zoidActivity: ['zoid', 'activity'] as const,
+  daemons: ['daemons'] as const,
+  daemonLogs: (label: string, src: string) => ['daemons', label, 'logs', src] as const,
+  memory: ['memory'] as const,
+  memoryPerformance: ['memory', 'performance'] as const,
+  ragChunks: (source: string, offset: number) => ['rag', 'chunks', source, offset] as const,
+  ragConfig: ['rag', 'config'] as const,
+  contextPipelineHookStatus: ['contextPipeline', 'hookStatus'] as const,
+  contextPipelineActivity: ['contextPipeline', 'activity'] as const,
+  contextPipelineConfig: ['contextPipeline', 'config'] as const,
 };
 
 // Service Status
@@ -148,6 +157,114 @@ export function useLogZoidActivity() {
       postApi('/zoid/activity', activity),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.zoidActivity });
+    },
+  });
+}
+
+// Daemons
+export function useDaemons() {
+  return useQuery({
+    queryKey: queryKeys.daemons,
+    queryFn: () => fetchApi<any[]>('/daemons'),
+    refetchInterval: 60000,
+  });
+}
+
+export function useDaemonLogs(label: string, src: 'out' | 'err', enabled: boolean = false) {
+  return useQuery({
+    queryKey: queryKeys.daemonLogs(label, src),
+    queryFn: () => fetchApi<any>(`/daemons/${encodeURIComponent(label)}/logs?src=${src}&lines=50`),
+    enabled,
+    refetchInterval: 10000,
+  });
+}
+
+export function useRestartDaemon() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (label: string) =>
+      postApi(`/daemons/${encodeURIComponent(label)}/restart`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.daemons });
+    },
+  });
+}
+
+// Memory
+export function useMemory() {
+  return useQuery({
+    queryKey: queryKeys.memory,
+    queryFn: () => fetchApi<any>('/memory'),
+    refetchInterval: 60000,
+  });
+}
+
+export function useMemoryPerformance() {
+  return useQuery({
+    queryKey: queryKeys.memoryPerformance,
+    queryFn: () => fetchApi<any>('/memory/performance'),
+    refetchInterval: 60000,
+  });
+}
+
+// RAG
+export function useRAGChunks(source: 'memory' | 'chat', offset: number = 0, limit: number = 20) {
+  return useQuery({
+    queryKey: queryKeys.ragChunks(source, offset),
+    queryFn: () => fetchApi<any>(`/rag/chunks?source=${source}&offset=${offset}&limit=${limit}`),
+  });
+}
+
+export function useRAGConfig() {
+  return useQuery({
+    queryKey: queryKeys.ragConfig,
+    queryFn: () => fetchApi<any>('/rag/config'),
+  });
+}
+
+export function useReindexRAG() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => postApi('/rag/reindex', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ragChunks('memory', 0) });
+    },
+  });
+}
+
+// Context Pipeline
+export function useContextPipelineHookStatus() {
+  return useQuery({
+    queryKey: queryKeys.contextPipelineHookStatus,
+    queryFn: () => fetchApi<any>('/context-pipeline/hook-status'),
+    refetchInterval: 30000,
+  });
+}
+
+export function useContextPipelineActivity() {
+  return useQuery({
+    queryKey: queryKeys.contextPipelineActivity,
+    queryFn: () => fetchApi<any[]>('/context-pipeline/activity'),
+    refetchInterval: 30000,
+  });
+}
+
+export function useContextPipelineConfig() {
+  return useQuery({
+    queryKey: queryKeys.contextPipelineConfig,
+    queryFn: () => fetchApi<any>('/context-pipeline/config'),
+  });
+}
+
+export function useUpdateContextPipelineConfig() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (config: any) => postApi('/context-pipeline/config', config),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contextPipelineConfig });
     },
   });
 }
