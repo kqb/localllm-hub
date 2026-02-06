@@ -1,6 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi, postApi } from './client';
-import type { ServiceStatus, ModelsResponse, ContextMonitorData, AgentState } from '@/types';
+import type {
+  ServiceStatus,
+  ModelsResponse,
+  ContextMonitorData,
+  AgentState,
+  JobsStats,
+  PipelinesStats,
+  Session,
+  CronJob,
+  ModelManagerResponse,
+} from '@/types';
 
 export const queryKeys = {
   status: ['status'] as const,
@@ -13,6 +23,11 @@ export const queryKeys = {
   memoryConfig: ['memory', 'config'] as const,
   chatSessions: ['chat', 'sessions'] as const,
   zoidActivity: ['zoid', 'activity'] as const,
+  jobs: ['jobs'] as const,
+  pipelines: ['pipelines'] as const,
+  sessions: ['sessions'] as const,
+  cron: ['cron'] as const,
+  modelManager: ['models', 'available'] as const,
 };
 
 // Service Status
@@ -148,6 +163,119 @@ export function useLogZoidActivity() {
       postApi('/zoid/activity', activity),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.zoidActivity });
+    },
+  });
+}
+
+// Jobs & Ingestion
+export function useJobs() {
+  return useQuery({
+    queryKey: queryKeys.jobs,
+    queryFn: () => fetchApi<JobsStats>('/jobs'),
+    refetchInterval: 60000,
+  });
+}
+
+export function useTriggerReindex() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => postApi('/reindex', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
+    },
+  });
+}
+
+// Pipelines
+export function usePipelines() {
+  return useQuery({
+    queryKey: queryKeys.pipelines,
+    queryFn: () => fetchApi<PipelinesStats>('/pipelines/stats'),
+    refetchInterval: 60000,
+  });
+}
+
+// Sessions
+export function useSessions() {
+  return useQuery({
+    queryKey: queryKeys.sessions,
+    queryFn: () => fetchApi<Session[]>('/sessions/list'),
+  });
+}
+
+// Cron
+export function useCron() {
+  return useQuery({
+    queryKey: queryKeys.cron,
+    queryFn: () => fetchApi<CronJob[]>('/cron/list'),
+  });
+}
+
+export function useRunCronJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => postApi('/cron/run', { id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.cron });
+    },
+  });
+}
+
+// Model Manager
+export function useModelManager() {
+  return useQuery({
+    queryKey: queryKeys.modelManager,
+    queryFn: () => fetchApi<ModelManagerResponse>('/models/available'),
+    refetchInterval: 30000,
+  });
+}
+
+export function usePullModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/pull', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
+  });
+}
+
+export function useDeleteModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/delete', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
+  });
+}
+
+export function useWarmModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/warm', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
+  });
+}
+
+export function useUnloadModelManager() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/warm', { name, keep_alive: 0 }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
     },
   });
 }

@@ -1,5 +1,6 @@
 import { Card, CardHeader, CardContent, LoadingText, Button, Badge } from '@/components/ui';
 import { useModels, useUnloadModel } from '@/api/queries';
+import { ModelManagerCard } from '@/components/models';
 
 export function Models() {
   const { data, isLoading, error } = useModels();
@@ -17,7 +18,11 @@ export function Models() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto p-6">
+    <div className="max-w-[1400px] mx-auto p-6 flex flex-col gap-6">
+      {/* Model Manager */}
+      <ModelManagerCard />
+
+      {/* Loaded Models */}
       <Card>
         <CardHeader>🤖 Model Management</CardHeader>
         <CardContent>

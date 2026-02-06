@@ -3,6 +3,8 @@ import { MLXStatus } from '@/components/mlx';
 import { ContextMonitor } from '@/components/context';
 import { AgentMonitor } from '@/components/agents';
 import { ZoidActivity } from '@/components/zoid';
+import { JobsCard } from '@/components/jobs';
+import { PipelinesCard } from '@/components/pipelines';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Dashboard() {
@@ -60,6 +62,17 @@ export function Dashboard() {
       {/* Zoid Activity */}
       <section>
         <ZoidActivity />
+      </section>
+
+      {/* Jobs & Pipelines Row */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <JobsCard />
+        <div>{/* Packages placeholder */}</div>
+      </section>
+
+      {/* Pipelines */}
+      <section>
+        <PipelinesCard />
       </section>
     </div>
   );

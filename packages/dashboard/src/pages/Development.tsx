@@ -1,5 +1,7 @@
 import { Card, CardHeader, CardContent } from '@/components/ui';
 import { AgentMonitor } from '@/components/agents';
+import { SessionsCard } from '@/components/sessions';
+import { CronCard } from '@/components/cron';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Development() {
@@ -38,6 +40,12 @@ export function Development() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Session Manager */}
+      <SessionsCard />
+
+      {/* Cron Manager */}
+      <CronCard />
     </div>
   );
 }
