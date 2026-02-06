@@ -29,14 +29,15 @@ class WebhookDispatcher {
     const message = this.formatMessage(session, eventType, payload);
 
     try {
-      // Use execFileSync with argument array for security
-      // This prevents shell injection even with untrusted payload
+      // Use system event which doesn't require gateway auth
+      // Format: clawdbot system event --text "message" --mode now
       execFileSync(
         'clawdbot',
-        ['gateway', 'wake', '--text', message, '--mode', 'now'],
+        ['system', 'event', '--text', message, '--mode', 'now'],
         {
           timeout: this.timeout,
           encoding: 'utf-8',
+          env: { ...process.env, FORCE_COLOR: '0' }, // Disable color to avoid emoji issues
         }
       );
 
@@ -59,25 +60,25 @@ class WebhookDispatcher {
 
     switch (type) {
       case 'complete':
-        return `✅ Agent \`${session}\` completed${cleanPayload}`;
+        return `[DONE] Agent ${session} completed${cleanPayload}`;
 
       case 'need_input':
-        return `❓ Agent \`${session}\` needs input${cleanPayload}`;
+        return `[HELP] Agent ${session} needs input${cleanPayload}`;
 
       case 'error':
-        return `❌ Agent \`${session}\` error${cleanPayload}`;
+        return `[ERROR] Agent ${session} error${cleanPayload}`;
 
       case 'blocked':
-        return `🚫 Agent \`${session}\` blocked${cleanPayload}`;
+        return `[BLOCKED] Agent ${session} blocked${cleanPayload}`;
 
       case 'stuck':
-        return `⏱️ Agent \`${session}\` appears stuck${cleanPayload}`;
+        return `[STUCK] Agent ${session} appears stuck${cleanPayload}`;
 
       case 'progress':
-        return `📊 Agent \`${session}\` progress: ${payload}%`;
+        return `[PROGRESS] Agent ${session}: ${payload}%`;
 
       default:
-        return `📡 Agent \`${session}\`: ${type}${cleanPayload}`;
+        return `[AGENT] ${session}: ${type}${cleanPayload}`;
     }
   }
 

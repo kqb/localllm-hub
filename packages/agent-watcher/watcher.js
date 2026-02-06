@@ -107,6 +107,7 @@ class AgentWatcher {
 
   /**
    * Scan for new tmux sessions and auto-watch them
+   * Only watches sessions matching the agent pattern
    */
   async scanSessions() {
     try {
@@ -115,10 +116,20 @@ class AgentWatcher {
         timeout: 5000,
       });
 
-      const sessions = output
+      const allSessions = output
         .trim()
         .split('\n')
         .filter((s) => s.length > 0);
+
+      // Filter to agent sessions only (matching pattern)
+      // Patterns: claude-*, wingman-*, *-agent, or sessions with "auto" in name
+      const agentPattern = /^(claude-|wingman-|.*-agent$|.*auto.*)/i;
+      const sessions = allSessions.filter((s) => agentPattern.test(s));
+
+      if (sessions.length !== allSessions.length) {
+        const skipped = allSessions.length - sessions.length;
+        console.log(`[Watcher] Skipped ${skipped} non-agent sessions`);
+      }
 
       // Watch any new sessions
       for (const session of sessions) {
