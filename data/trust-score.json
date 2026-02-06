@@ -1,9 +1,9 @@
 {
   "initialized": "2026-02-05T00:00:00.000Z",
   "current": {
-    "score": 96,
+    "score": 91,
     "factors": {
-      "routerAccuracy": 95,
+      "routerAccuracy": 80,
       "memoryRecall": 100,
       "taskCompletion": 90
     },
@@ -13,9 +13,27 @@
     {
       "type": "manual_override",
       "impact": -5,
+      "date": "2026-02-06",
+      "detail": "claude_opus"
+    },
+    {
+      "type": "manual_override",
+      "impact": -5,
+      "date": "2026-02-06",
+      "detail": "claude_opus"
+    },
+    {
+      "type": "manual_override",
+      "impact": -5,
+      "date": "2026-02-06",
+      "detail": "claude_opus"
+    },
+    {
+      "type": "manual_override",
+      "impact": -5,
       "date": "2026-02-05",
       "detail": "claude_opus"
     }
   ],
-  "lastUpdated": "2026-02-06T05:33:08.604Z"
+  "lastUpdated": "2026-02-06T05:51:08.455Z"
 }

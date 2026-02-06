@@ -179,6 +179,29 @@
   .activity-table .details { color: var(--text2); font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .activity-log-container { max-height: 400px; overflow-y: auto; }
 
+  /* Self-Healing Log */
+  .heal-timeline { max-height: 500px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+  .heal-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; cursor: pointer; transition: border-color .15s; }
+  .heal-card:hover { border-color: var(--accent); }
+  .heal-card.expanded { border-color: var(--accent); }
+  .heal-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .heal-card-category { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .heal-card-category.rag { background: rgba(88,166,255,.15); color: var(--accent); }
+  .heal-card-category.config { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .heal-card-category.performance { background: rgba(240,136,62,.15); color: var(--orange); }
+  .heal-card-category.other { background: rgba(139,148,158,.15); color: var(--text2); }
+  .heal-card-status { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+  .heal-card-status.fixed { background: rgba(63,185,80,.15); color: var(--green); }
+  .heal-card-status.monitoring { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .heal-card-status.investigating { background: rgba(88,166,255,.15); color: var(--accent); }
+  .heal-card-timestamp { font-size: 11px; color: var(--text2); margin-left: 8px; }
+  .heal-card-pattern { font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 8px; }
+  .heal-card-content { font-size: 13px; color: var(--text2); line-height: 1.5; }
+  .heal-card-content.collapsed { max-height: 60px; overflow: hidden; text-overflow: ellipsis; }
+  .heal-card-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .heal-card-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); margin-bottom: 4px; }
+  .heal-card-text { white-space: pre-wrap; word-break: break-word; }
+
   /* Budget bar */
   .budget-bar { position: relative; height: 36px; background: var(--bg3); border-radius: 4px; overflow: hidden; display: flex; }
   .budget-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); overflow: hidden; white-space: nowrap; transition: width .4s ease; }
@@ -530,6 +553,23 @@
   <section class="card" id="zoid-activity-card">
     <h2>🦑 Zoid Activity Log</h2>
     <div id="zoid-activity-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
+  </section>
+
+  <!-- Self-Healing Log -->
+  <section class="card" id="self-heal-card">
+    <h2>🔧 Self-Healing Log</h2>
+    <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
+      <div class="filters" style="margin: 0;">
+        <label><input type="checkbox" id="filter-rag" checked> RAG</label>
+        <label><input type="checkbox" id="filter-config" checked> Config</label>
+        <label><input type="checkbox" id="filter-performance" checked> Performance</label>
+        <label><input type="checkbox" id="filter-other" checked> Other</label>
+      </div>
+      <div style="margin-left: auto;">
+        <span id="heal-stats" style="font-size: 12px; color: var(--text2);"></span>
+      </div>
+    </div>
+    <div id="self-heal-content"><span class="loading-text"><span class="spinner"></span> Loading...</span></div>
   </section>
 
   <!-- Conversation -->
@@ -2652,6 +2692,145 @@ async function loadZoidActivity() {
   }
 }
 
+async function loadSelfHeal() {
+  try {
+    const res = await fetch(API + '/api/self-heal/log');
+    const data = await res.json();
+
+    if (!data.entries || data.entries.length === 0) {
+      $('self-heal-content').textContent = 'No self-healing entries yet';
+      return;
+    }
+
+    // Load stats
+    const statsRes = await fetch(API + '/api/self-heal/stats');
+    const stats = await statsRes.json();
+    const totalFixes = stats.byStatus?.fixed || 0;
+    $('heal-stats').textContent = `Total fixes: ${totalFixes} • By category: RAG ${stats.byCategory?.rag || 0}, Config ${stats.byCategory?.config || 0}, Performance ${stats.byCategory?.performance || 0}, Other ${stats.byCategory?.other || 0}`;
+
+    // Get active filters
+    const filters = {
+      rag: $('filter-rag').checked,
+      config: $('filter-config').checked,
+      performance: $('filter-performance').checked,
+      other: $('filter-other').checked,
+    };
+
+    // Filter entries
+    const filtered = data.entries.filter(e => filters[e.category]);
+
+    if (filtered.length === 0) {
+      $('self-heal-content').textContent = 'No entries match selected filters';
+      return;
+    }
+
+    // Build timeline using DOM methods
+    const timeline = document.createElement('div');
+    timeline.className = 'heal-timeline';
+
+    for (const entry of filtered) {
+      const card = document.createElement('div');
+      card.className = 'heal-card';
+      card.onclick = () => toggleHealCard(entry.id);
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'heal-card-header';
+
+      const headerContent = document.createElement('div');
+
+      const categoryBadge = document.createElement('span');
+      categoryBadge.className = `heal-card-category ${entry.category}`;
+      categoryBadge.textContent = entry.category;
+
+      const statusBadge = document.createElement('span');
+      statusBadge.className = `heal-card-status ${entry.status}`;
+      statusBadge.textContent = entry.status;
+
+      const timestamp = document.createElement('span');
+      timestamp.className = 'heal-card-timestamp';
+      timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+
+      headerContent.appendChild(categoryBadge);
+      headerContent.appendChild(statusBadge);
+      headerContent.appendChild(timestamp);
+      header.appendChild(headerContent);
+      card.appendChild(header);
+
+      // Pattern
+      const pattern = document.createElement('div');
+      pattern.className = 'heal-card-pattern';
+      pattern.textContent = entry.pattern;
+      card.appendChild(pattern);
+
+      // Content (collapsible)
+      const content = document.createElement('div');
+      content.className = 'heal-card-content collapsed';
+      content.id = `heal-content-${entry.id}`;
+
+      // Diagnosis section
+      const diagSection = document.createElement('div');
+      diagSection.className = 'heal-card-section';
+      const diagLabel = document.createElement('div');
+      diagLabel.className = 'heal-card-label';
+      diagLabel.textContent = 'Diagnosis';
+      const diagText = document.createElement('div');
+      diagText.className = 'heal-card-text';
+      diagText.textContent = entry.diagnosis;
+      diagSection.appendChild(diagLabel);
+      diagSection.appendChild(diagText);
+      content.appendChild(diagSection);
+
+      // Approach section
+      const approachSection = document.createElement('div');
+      approachSection.className = 'heal-card-section';
+      const approachLabel = document.createElement('div');
+      approachLabel.className = 'heal-card-label';
+      approachLabel.textContent = 'Approach';
+      const approachText = document.createElement('div');
+      approachText.className = 'heal-card-text';
+      approachText.textContent = entry.approach;
+      approachSection.appendChild(approachLabel);
+      approachSection.appendChild(approachText);
+      content.appendChild(approachSection);
+
+      // Result section
+      const resultSection = document.createElement('div');
+      resultSection.className = 'heal-card-section';
+      const resultLabel = document.createElement('div');
+      resultLabel.className = 'heal-card-label';
+      resultLabel.textContent = 'Result';
+      const resultText = document.createElement('div');
+      resultText.className = 'heal-card-text';
+      resultText.textContent = entry.result;
+      resultSection.appendChild(resultLabel);
+      resultSection.appendChild(resultText);
+      content.appendChild(resultSection);
+
+      card.appendChild(content);
+      timeline.appendChild(card);
+    }
+
+    // Clear and append
+    $('self-heal-content').textContent = '';
+    $('self-heal-content').appendChild(timeline);
+  } catch (e) {
+    $('self-heal-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+function toggleHealCard(id) {
+  const content = $('heal-content-' + id);
+  const card = content.closest('.heal-card');
+  if (content.classList.contains('collapsed')) {
+    content.classList.remove('collapsed');
+    card.classList.add('expanded');
+  } else {
+    content.classList.add('collapsed');
+    card.classList.remove('expanded');
+  }
+}
+
 async function loadPackages() {
   try {
     const res = await fetch(API + '/api/packages');
@@ -4455,11 +4634,17 @@ document.addEventListener('click', (e) => {
 });
 
 (async () => {
-  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadZoidActivity(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher(), loadRouterHealth(), loadMemoryPerformance(), loadTrustScore(), loadCorrectionsTimeline()]);
+  await Promise.all([loadStatus(), loadModels(), loadMLX(), loadJobs(), loadPipelines(), loadContextPipeline(), loadContextMonitor(), loadAgents(), loadZoidActivity(), loadSelfHeal(), loadChatSessions(), loadClawdbot(), loadMemory(), loadDaemons(), loadPackages(), loadModelManager(), loadBudget(), loadRoutes(), loadRag(), loadEconomics(), loadPromptEditor(), loadSkills(), loadCorrections(), loadSessionManager(), loadCron(), loadAlerts(), loadRouter(), loadCompaction(), loadEmbeddings(), loadModelSwitcher(), loadRouterHealth(), loadMemoryPerformance(), loadTrustScore(), loadCorrectionsTimeline()]);
   connectWs();
 
   // Set up export diagnostics button
   $('export-diagnostics-btn').addEventListener('click', exportDiagnostics);
+
+  // Set up self-heal filter listeners
+  $('filter-rag').addEventListener('change', loadSelfHeal);
+  $('filter-config').addEventListener('change', loadSelfHeal);
+  $('filter-performance').addEventListener('change', loadSelfHeal);
+  $('filter-other').addEventListener('change', loadSelfHeal);
 
   // Refresh context monitor every 30s
   setInterval(loadContextMonitor, 30000);
@@ -4477,6 +4662,8 @@ document.addEventListener('click', (e) => {
   setInterval(loadEconomics, 120000);
   // Refresh system health panels every 60s
   setInterval(() => { loadRouterHealth(); loadMemoryPerformance(); loadTrustScore(); loadCorrectionsTimeline(); }, 60000);
+  // Refresh self-healing log every 60s
+  setInterval(loadSelfHeal, 60000);
 })();
 </script>
 <!-- Agent Monitor Tab -->

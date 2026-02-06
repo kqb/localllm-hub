@@ -2073,6 +2073,60 @@ app.get('/api/zoid/activity', (_req, res) => {
   }
 });
 
+// --- Self-Healing Log ---
+
+const selfHealLog = require('./self-heal-log.cjs');
+
+// POST /api/self-heal/log - Add new self-healing entry
+app.post('/api/self-heal/log', (req, res) => {
+  try {
+    const { pattern, diagnosis, approach, result, category, status } = req.body;
+
+    if (!pattern || !diagnosis || !approach || !result) {
+      return res.status(400).json({ error: 'Missing required fields: pattern, diagnosis, approach, result' });
+    }
+
+    const entry = selfHealLog.addEntry({
+      pattern,
+      diagnosis,
+      approach,
+      result,
+      category: category || 'other',
+      status: status || 'fixed',
+    });
+
+    console.log(`[Self-Heal] ${category || 'other'}: ${pattern.substring(0, 60)}...`);
+
+    res.json({ success: true, entry });
+  } catch (err) {
+    console.error('[Self-Heal] Error adding entry:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/self-heal/log - Retrieve log entries
+app.get('/api/self-heal/log', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const entries = selfHealLog.getEntries(limit);
+    res.json({ entries, count: entries.length });
+  } catch (err) {
+    console.error('[Self-Heal] Error retrieving log:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/self-heal/stats - Get summary statistics
+app.get('/api/self-heal/stats', (_req, res) => {
+  try {
+    const stats = selfHealLog.getStats();
+    res.json(stats);
+  } catch (err) {
+    console.error('[Self-Heal] Error getting stats:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Diagnostics Export ---
 
 app.get('/api/diagnostics/export', async (_req, res) => {

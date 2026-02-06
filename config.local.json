@@ -20,13 +20,11 @@
       "minScore": 0.50,
       "sources": [
         "memory",
-        "chat",
-        "telegram"
+        "chat"
       ],
       "sourceWeights": {
         "memory": 1.0,
-        "chat": 0.7,
-        "telegram": 0.5
+        "chat": 0.5
       },
       "injectAs": "system"
     },

@@ -416,6 +416,9 @@ Real-time web monitoring dashboard. Express + WebSocket + vanilla JS.
 | GET | `/api/chat/:id/messages/stream?last=` | Tail last N messages |
 | POST | `/api/zoid/activity` | Log Zoid orchestration action (body: `{action, session, details}`) |
 | GET | `/api/zoid/activity` | Retrieve recent Zoid activity log (last 100 entries) |
+| POST | `/api/self-heal/log` | Log self-healing entry (body: `{pattern, diagnosis, approach, result, category, status}`) |
+| GET | `/api/self-heal/log` | Retrieve self-healing log entries (last 50) |
+| GET | `/api/self-heal/stats` | Get self-healing stats summary (total, by category, by status) |
 | GET | `/api/diagnostics/export` | Comprehensive diagnostics export (JSON) |
 
 #### WebSocket
@@ -431,13 +434,14 @@ Broadcasts every 30s:
 2. **📊 Context Monitor** — Context window progress bar (color-coded green/yellow/red), injected file token costs, memory footprint, auto-refresh 30s
 3. **🤖 Agent Monitor** — Clawdbot + tmux session list with status dots (green=active, yellow=idle, red=stale), click to expand live output viewer (5s refresh), input bar to send commands
 4. **🦑 Zoid Activity Log** — Real-time log of Zoid's orchestration actions (check, nudge, kill, assess, spawn, suppress), color-coded by action type, shows timestamp/session/details, manual logging via `~/clawd/scripts/log-zoid-action.sh` or POST /api/zoid/activity, WebSocket updates
-5. **💬 Conversation** — Full chat history with session selector, toggle buttons for 🧠 Thinking / 🔧 Tools / 📊 Usage, collapsible thinking blocks, expandable tool call arguments, markdown rendering, pagination (load more), live tail (5s polling)
-6. **🔍 Semantic Search** — Multi-source search with sliders and source toggles
-7. **Jobs** — Ingestion stats (chat chunks, telegram chunks, progress)
-8. **Clawdbot Config** — Editable gateway config (writes to clawdbot.json)
-9. **Memory Config** — Editable localllm config (writes to config.local.json)
-10. **Daemons** — Launchd service status with log viewers + restart buttons
-11. **Packages** — Health grid for all localllm packages
+5. **🔧 Self-Healing Log** — Timeline of autonomous improvements (pattern→diagnosis→approach→result), category filters (RAG, Config, Performance, Other), status indicators (fixed, monitoring, investigating), expandable cards, manual logging via `~/clawd/scripts/log-self-heal.sh` or POST /api/self-heal/log, persisted to `~/.clawdbot/self-heal-log.json`, 60s refresh
+6. **💬 Conversation** — Full chat history with session selector, toggle buttons for 🧠 Thinking / 🔧 Tools / 📊 Usage, collapsible thinking blocks, expandable tool call arguments, markdown rendering, pagination (load more), live tail (5s polling)
+7. **🔍 Semantic Search** — Multi-source search with sliders and source toggles
+8. **Jobs** — Ingestion stats (chat chunks, telegram chunks, progress)
+9. **Clawdbot Config** — Editable gateway config (writes to clawdbot.json)
+10. **Memory Config** — Editable localllm config (writes to config.local.json)
+11. **Daemons** — Launchd service status with log viewers + restart buttons
+12. **Packages** — Health grid for all localllm packages
 
 #### Dashboard Architecture Patterns
 
@@ -1193,4 +1197,11 @@ node cli.js triage "production server is down"
 ~/clawd/scripts/log-zoid-action.sh kill agent-name "Unresponsive"
 ~/clawd/scripts/log-zoid-action.sh spawn agent-name "Starting new task"
 ~/clawd/scripts/log-zoid-action.sh suppress agent-name "Silencing alerts"
+
+# Log self-healing improvements
+~/clawd/scripts/log-self-heal.sh rag fixed \
+  "RAG returning noise on every query" \
+  "Session dumps in memory/ folder with common terms" \
+  "Deleted 3 noise files, reindexed memory.db" \
+  "Passport noise eliminated, relevant results now"
 ```
