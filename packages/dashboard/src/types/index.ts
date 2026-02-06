@@ -57,3 +57,62 @@ export interface ContextMonitorData {
 }
 
 export type BadgeVariant = 'green' | 'red' | 'yellow' | 'blue' | 'purple' | 'orange';
+
+// Jobs & Ingestion
+export interface JobsStats {
+  hasData: boolean;
+  filesIndexed?: number;
+  chatSessions?: number;
+  chatChunks?: number;
+  telegramChunks?: number;
+  lastUpdate?: string;
+}
+
+// Pipelines
+export interface PipelineStats {
+  total: number;
+  successful: number;
+  failed: number;
+  successRate: string;
+  avgDuration: string;
+  lastRun: string;
+}
+
+export type PipelinesStats = Record<string, PipelineStats>;
+
+// Sessions
+export interface Session {
+  sessionId: string;
+  filename: string;
+  sizeBytes: number;
+  estimatedMessages: number;
+  lastModified: string;
+}
+
+// Cron
+export interface CronJob {
+  id?: string;
+  name?: string;
+  schedule?: string;
+  cron?: string;
+  interval?: string;
+  text?: string;
+  command?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+// Model Manager
+export interface ModelManagerModel {
+  name: string;
+  size: number;
+  family: string | null;
+  parameterSize: string | null;
+  quantization: string | null;
+  modifiedAt: string | null;
+  loaded: boolean;
+}
+
+export interface ModelManagerResponse {
+  models: ModelManagerModel[];
+}

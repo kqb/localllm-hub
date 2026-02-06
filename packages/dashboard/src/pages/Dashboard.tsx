@@ -9,6 +9,8 @@ import { TrustScore } from '@/components/trust';
 import { Alerts } from '@/components/alerts';
 import { Corrections } from '@/components/corrections';
 import { ChatCard, SearchCard, EmbeddingsCard } from '@/components/tools';
+import { JobsCard } from '@/components/jobs';
+import { PipelinesCard } from '@/components/pipelines';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Dashboard() {
@@ -114,6 +116,15 @@ export function Dashboard() {
       {/* Embeddings Explorer */}
       <section>
         <EmbeddingsCard />
+      {/* Jobs & Pipelines Row */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <JobsCard />
+        <div>{/* Packages placeholder */}</div>
+      </section>
+
+      {/* Pipelines */}
+      <section>
+        <PipelinesCard />
       </section>
     </div>
   );

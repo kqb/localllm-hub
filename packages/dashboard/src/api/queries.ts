@@ -1,6 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi, postApi } from './client';
-import type { ServiceStatus, ModelsResponse, ContextMonitorData, AgentState } from '@/types';
+import type {
+  ServiceStatus,
+  ModelsResponse,
+  ContextMonitorData,
+  AgentState,
+  JobsStats,
+  PipelinesStats,
+  Session,
+  CronJob,
+  ModelManagerResponse,
+} from '@/types';
 
 export const queryKeys = {
   status: ['status'] as const,
@@ -28,6 +38,11 @@ routerHealth: ['router', 'health'] as const,
   alerts: ['alerts'] as const,
   trust: ['trust'] as const,
   corrections: ['corrections'] as const,
+  jobs: ['jobs'] as const,
+  pipelines: ['pipelines'] as const,
+  sessions: ['sessions'] as const,
+  cron: ['cron'] as const,
+  modelManager: ['models', 'available'] as const,
 };
 
 // Service Status
@@ -172,6 +187,11 @@ export function useDaemons() {
   return useQuery({
     queryKey: queryKeys.daemons,
     queryFn: () => fetchApi<any[]>('/daemons'),
+// Jobs & Ingestion
+export function useJobs() {
+  return useQuery({
+    queryKey: queryKeys.jobs,
+    queryFn: () => fetchApi<JobsStats>('/jobs'),
     refetchInterval: 60000,
   });
 }
@@ -193,6 +213,13 @@ export function useRestartDaemon() {
       postApi(`/daemons/${encodeURIComponent(label)}/restart`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.daemons });
+export function useTriggerReindex() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => postApi('/reindex', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
     },
   });
 }
@@ -202,6 +229,11 @@ export function useMemory() {
   return useQuery({
     queryKey: queryKeys.memory,
     queryFn: () => fetchApi<any>('/memory'),
+// Pipelines
+export function usePipelines() {
+  return useQuery({
+    queryKey: queryKeys.pipelines,
+    queryFn: () => fetchApi<PipelinesStats>('/pipelines/stats'),
     refetchInterval: 60000,
   });
 }
@@ -236,6 +268,29 @@ export function useReindexRAG() {
     mutationFn: () => postApi('/rag/reindex', {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.ragChunks('memory', 0) });
+// Sessions
+export function useSessions() {
+  return useQuery({
+    queryKey: queryKeys.sessions,
+    queryFn: () => fetchApi<Session[]>('/sessions/list'),
+  });
+}
+
+// Cron
+export function useCron() {
+  return useQuery({
+    queryKey: queryKeys.cron,
+    queryFn: () => fetchApi<CronJob[]>('/cron/list'),
+  });
+}
+
+export function useRunCronJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => postApi('/cron/run', { id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.cron });
     },
   });
 }
@@ -250,6 +305,11 @@ export function useRouterHealth() {
   return useQuery({
     queryKey: queryKeys.routerHealth,
     queryFn: () => fetchApi<any>('/router/health'),
+// Model Manager
+export function useModelManager() {
+  return useQuery({
+    queryKey: queryKeys.modelManager,
+    queryFn: () => fetchApi<ModelManagerResponse>('/models/available'),
     refetchInterval: 30000,
   });
 }
@@ -274,6 +334,14 @@ export function useUpdateRouterPrompt() {
       postApi('/router/prompt', { content }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.routerPrompt });
+export function usePullModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/pull', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
     },
   });
 }
@@ -339,5 +407,38 @@ export function useCorrection(name: string) {
     queryKey: ['correction', name],
     queryFn: () => fetchApi<any>(`/corrections/${encodeURIComponent(name)}`),
     enabled: !!name,
+export function useDeleteModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/delete', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
+  });
+}
+
+export function useWarmModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/warm', { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
+  });
+}
+
+export function useUnloadModelManager() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => postApi('/models/warm', { name, keep_alive: 0 }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.modelManager });
+      queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    },
   });
 }
