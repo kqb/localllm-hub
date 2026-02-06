@@ -2,7 +2,7 @@
  * Webhook Dispatcher
  *
  * Sends agent events to Clawdbot gateway via the wake command.
- * Uses clawdbot CLI for immediate notification.
+ * Supports batching to reduce notification spam.
  */
 
 const { execFileSync } = require('child_process');
@@ -12,10 +12,22 @@ class WebhookDispatcher {
     this.endpoint = options.endpoint || 'http://127.0.0.1:18789';
     this.timeout = options.timeout || 5000;
     this.enabled = options.enabled !== false;
+    
+    // Batching configuration
+    this.batchIntervalMs = options.batchIntervalMs || 10000; // 10 seconds
+    this.batchEnabled = options.batchEnabled !== false;
+    
+    // Pending events per session: session -> [{type, payload, ts}]
+    this.pendingEvents = new Map();
+    
+    // Start batch flush timer
+    if (this.batchEnabled) {
+      this._batchTimer = setInterval(() => this._flushBatches(), this.batchIntervalMs);
+    }
   }
 
   /**
-   * Dispatch an event to Clawdbot
+   * Dispatch an event to Clawdbot (queued for batching)
    * @param {string} session - Session name
    * @param {string} eventType - Event type (complete, need_input, error, blocked, stuck)
    * @param {string} payload - Event payload/message
@@ -26,25 +38,96 @@ class WebhookDispatcher {
       return;
     }
 
+    // High-priority events bypass batching
+    const highPriority = ['complete', 'error', 'need_input', 'blocked', 'stuck'];
+    
+    if (!this.batchEnabled || highPriority.includes(eventType)) {
+      // Send immediately
+      this._sendNow(session, eventType, payload);
+      return;
+    }
+
+    // Queue for batching (progress events)
+    if (!this.pendingEvents.has(session)) {
+      this.pendingEvents.set(session, []);
+    }
+    
+    this.pendingEvents.get(session).push({
+      type: eventType,
+      payload,
+      ts: Date.now(),
+    });
+  }
+
+  /**
+   * Send event immediately
+   * @private
+   */
+  _sendNow(session, eventType, payload) {
     const message = this.formatMessage(session, eventType, payload);
 
     try {
-      // Use system event which doesn't require gateway auth
-      // Format: clawdbot system event --text "message" --mode now
       execFileSync(
         'clawdbot',
         ['system', 'event', '--text', message, '--mode', 'now'],
         {
           timeout: this.timeout,
           encoding: 'utf-8',
-          env: { ...process.env, FORCE_COLOR: '0' }, // Disable color to avoid emoji issues
+          env: { ...process.env, FORCE_COLOR: '0' },
         }
       );
 
       console.log(`[Webhook] Sent: ${eventType} for ${session}`);
     } catch (err) {
-      // Don't crash if webhook fails - just log
       console.error(`[Webhook] Failed to dispatch ${eventType} for ${session}:`, err.message);
+    }
+  }
+
+  /**
+   * Flush all pending batches
+   * @private
+   */
+  _flushBatches() {
+    for (const [session, events] of this.pendingEvents) {
+      if (events.length === 0) continue;
+
+      // Summarize progress events
+      const progressEvents = events.filter(e => e.type === 'progress');
+      const otherEvents = events.filter(e => e.type !== 'progress');
+
+      // Build batch message
+      let message = `[BATCH] Agent ${session}:`;
+      
+      if (progressEvents.length > 0) {
+        const latestProgress = progressEvents[progressEvents.length - 1];
+        message += ` progress ${latestProgress.payload}%`;
+        if (progressEvents.length > 1) {
+          message += ` (${progressEvents.length} updates)`;
+        }
+      }
+
+      for (const event of otherEvents) {
+        message += `\n  - ${event.type.toUpperCase()}${event.payload ? ': ' + event.payload : ''}`;
+      }
+
+      // Send batch
+      try {
+        execFileSync(
+          'clawdbot',
+          ['system', 'event', '--text', message, '--mode', 'now'],
+          {
+            timeout: this.timeout,
+            encoding: 'utf-8',
+            env: { ...process.env, FORCE_COLOR: '0' },
+          }
+        );
+        console.log(`[Webhook] Sent batch for ${session}: ${events.length} events`);
+      } catch (err) {
+        console.error(`[Webhook] Failed to dispatch batch for ${session}:`, err.message);
+      }
+
+      // Clear pending events
+      this.pendingEvents.set(session, []);
     }
   }
 
@@ -96,6 +179,18 @@ class WebhookDispatcher {
   disable() {
     this.enabled = false;
     console.log('[Webhook] Disabled');
+  }
+
+  /**
+   * Stop the batch timer (for clean shutdown)
+   */
+  stop() {
+    if (this._batchTimer) {
+      clearInterval(this._batchTimer);
+      this._batchTimer = null;
+    }
+    // Flush any remaining events
+    this._flushBatches();
   }
 }
 

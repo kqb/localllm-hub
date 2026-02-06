@@ -8,11 +8,11 @@
  * to avoid false positives from documentation containing signal examples.
  */
 
-// Match signals at start of line OR after Claude's action prefix (⏺)
-// This prevents matching signals inside markdown code blocks or docs
-// Real signals: "⏺ :::DONE:::" or ":::DONE:::" at line start
-// False positives: "- `:::DONE:::` when..." (embedded in markdown)
-const SIGNAL_REGEX = /(?:^|⏺)\s*:::(DONE|HELP|ERROR|BLOCKED|PROGRESS):?([^:]*)?:::/gm;
+// Match signals with [SIGNAL] prefix OR Claude's action prefix (⏺) OR start of line
+// Priority: [SIGNAL] prefix is most reliable (from new wingman format)
+// Fallback: ⏺ prefix or start-of-line for backwards compatibility
+// False positives: "- `:::DONE:::` when..." (embedded in markdown) - filtered by blocklist
+const SIGNAL_REGEX = /(?:\[SIGNAL\]|^|⏺)\s*:::(DONE|HELP|ERROR|BLOCKED|PROGRESS):?([^:]*)?:::/gm;
 
 // Known false positive payloads from documentation examples
 const FALSE_POSITIVE_PAYLOADS = new Set([
