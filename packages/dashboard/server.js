@@ -23,7 +23,14 @@ const zoidActivityLog = [];
 const MAX_ACTIVITY_LOG_SIZE = 100;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve React app in production, proxy in development
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'dist')));
+} else {
+  // In dev mode, Vite dev server runs on port 3848 and proxies API requests here
+  console.log('[Dashboard] Running in development mode. Start Vite dev server with: npm run dev');
+}
 
 // --- helpers ---
 
