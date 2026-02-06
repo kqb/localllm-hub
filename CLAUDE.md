@@ -344,12 +344,32 @@ const result = await assembleContext('explain the routing architecture', 'sessio
 
 **Feature flags** (`config.contextPipeline.features`): `skipLogic`, `embeddingCache`, `timingStats`, `connectionPool`, `routeAwareSources`, `historyCompression` — all independently toggleable, all default ON except `historyCompression`.
 
-**Weighted RAG Sources** (Phase 3.5): Results from different sources are weighted by quality tier to prioritize curated memory over noisy chat logs:
-- `memory: 1.0` — Tier 1: Curated notes (highest priority)
-- `chat: 0.7` — Tier 2: Clawdbot sessions (useful but verbose)
-- `telegram: 0.5` — Tier 3: Raw chat (often noise, needs raw≥1.0 to pass minScore=0.50)
+**Tiered RAG Architecture** (Phase 3.5): Results are filtered and weighted by quality tier:
 
-This means a memory result with raw score 0.50 passes, but a telegram result needs raw score 1.00 (perfect match) to achieve weighted score 0.50. Both `score` (weighted) and `rawScore` are preserved in results for debugging. Source distribution is logged: `"RAG: 5 results (memory: 4, chat: 1, telegram: 0)"`.
+**Tier 1: Curated Memory (weight: 1.0)**
+- Sources: MEMORY.md, memory/*.md
+- Content: Hand-curated notes, decisions, learnings
+- Filtering: None (every byte is signal)
+- Quality: Highest
+
+**Tier 2: Filtered Chat Logs (weight: 0.5)**
+- Sources: chat-memory.db (chat_chunks, telegram_chunks)
+- Content: Assistant responses >100 chars (decisions, explanations, code)
+- Filtering (at INDEX time):
+  - Only `role='assistant'` messages (my knowledge, not user questions)
+  - Only messages >100 chars (skip "ok", "done", short acks)
+  - Excludes tool calls/results (already filtered by parser)
+  - Strips ANSI codes and formatting artifacts
+- Quality: Medium - useful but verbose
+- Re-indexing: Run `node cli.js chat reindex --yes` to rebuild with new filters
+
+**Tier 3: Recent Context (no vector search)**
+- Sources: In-memory session messages (last 5-10 turns)
+- Content: Current conversation window
+- Filtering: None (verbatim history)
+- Access: Prepended to prompt, not searched
+
+Weighted scores mean a memory result with raw score 0.50 passes minScore, but a chat/telegram result needs raw score 1.00 (perfect match) to achieve weighted score 0.50. Both `score` (weighted) and `rawScore` are preserved in results for debugging. Source distribution is logged: `"RAG: 5 results (memory: 4, chat: 1, telegram: 0)"`.
 
 **Stats API**: `getStats()` returns per-stage averages (embedding, search, routing, assembly), skip rate, cache hits. Exposed via dashboard `/api/context-monitor`.
 
@@ -449,7 +469,8 @@ All via `node cli.js <command>` or `localllm <command>` (if linked):
 | `reindex --source --db` | search | ✅ | Rebuild search index |
 | `transcribe <file>` | transcriber | ❌ | Transcribe audio file |
 | `transcribe-batch <dir>` | transcriber | ❌ | Batch transcribe directory |
-| `chat ingest` | chat-ingest | ✅ | Ingest session transcripts |
+| `chat ingest` | chat-ingest | ✅ | Ingest session transcripts (incremental) |
+| `chat reindex --yes` | chat-ingest | ✅ | Clear + re-ingest with Tier 2 filters (assistant-only, length>100) |
 | `chat search <query>` | chat-ingest | ✅ | Search chat history |
 | `chat search-all <query>` | chat-ingest | ✅ | Unified cross-source search |
 | `chat status` | chat-ingest | ❌ | Show indexing stats |

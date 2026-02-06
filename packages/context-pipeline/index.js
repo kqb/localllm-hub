@@ -8,6 +8,50 @@ const { compressHistory, deduplicateMessages } = require('./history');
 const { detectCorrectionSignal, logCorrection, incrementMetric } = require('./memory-tracker');
 const { checkAlerts, processAlerts } = require('./alerts');
 
+// ============================================================================
+// TIERED RAG ARCHITECTURE
+// ============================================================================
+//
+// Context assembly uses a 3-tier architecture to balance quality and latency:
+//
+// **Tier 1: Curated Memory (Vector Search)**
+//   - Sources: MEMORY.md, memory/*.md
+//   - Weight: 1.0 (full priority)
+//   - Content: Hand-curated notes, decisions, learnings
+//   - Quality: Highest - every byte is signal
+//   - Access: Via unifiedSearch() with source='memory'
+//
+// **Tier 2: Filtered Chat Logs (Vector Search)**
+//   - Sources: chat-memory.db (chat_chunks, telegram_chunks)
+//   - Weight: 0.5 (reduced priority)
+//   - Content: Assistant responses >100 chars (decisions, explanations, code)
+//   - Filtering (at INDEX time):
+//     - Only role='assistant' messages (my knowledge, not user questions)
+//     - Only messages >100 chars (skip "ok", "done", short acks)
+//     - Excludes tool calls/results (already filtered by parser)
+//     - Strips ANSI codes and formatting artifacts
+//   - Quality: Medium - useful but verbose
+//   - Access: Via unifiedSearch() with sources=['chat', 'telegram']
+//
+// **Tier 3: Recent Context (No Vector Search)**
+//   - Sources: In-memory session messages (last 5-10 turns)
+//   - Weight: N/A (prepended verbatim to prompt)
+//   - Content: Current conversation window
+//   - Quality: Essential for continuity
+//   - Access: Via shortTermHistory in this module
+//
+// **Why Tier 2 Filtering Matters:**
+// Before filtering, chat logs contained user questions, short acks, and tool
+// output, creating noisy search results. By filtering to assistant responses
+// >100 chars at INDEX time, only quality content enters the vector database.
+// This makes chat results nearly as valuable as curated memory (hence 0.5 weight).
+//
+// **Implementation:**
+// - Tier 1+2: unifiedSearch() in chat-ingest/unified-search.js
+// - Tier 2 filtering: shouldIndexMessage() in chat-ingest/index.js
+// - Tier 3: shortTermHistory (lines 228-244 below)
+// ============================================================================
+
 // In-memory session storage with LRU eviction
 const sessions = new Map();
 const MAX_SESSIONS = 100; // Prevent unbounded growth

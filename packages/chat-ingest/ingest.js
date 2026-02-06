@@ -70,10 +70,11 @@ async function ingestFile(db, filePath) {
 
   logger.info(`Ingesting ${fileName} from offset ${lastOffset} (file size: ${stat.size})`);
 
-  const { messages, newOffset } = parseTranscriptMessages(filePath, lastOffset);
+  // Apply Tier 2 content filtering: only assistant messages > 100 chars
+  const { messages, newOffset } = parseTranscriptMessages(filePath, lastOffset, true);
   if (messages.length === 0) {
-    logger.info(`  No text messages in new data (tool calls/system only), advancing offset`);
-    // Update offset even if no messages (could be tool-only lines)
+    logger.info(`  No indexable messages (filters: assistant-only, length>100 chars)`);
+    // Update offset even if no messages (could be filtered out or tool-only lines)
     db.prepare(`
       INSERT INTO ingest_progress (file, last_offset, last_timestamp)
       VALUES (?, ?, ?)
@@ -82,7 +83,7 @@ async function ingestFile(db, filePath) {
     return 0;
   }
 
-  logger.info(`  Found ${messages.length} messages (${messages.filter(m => m.role === 'user').length} user, ${messages.filter(m => m.role === 'assistant').length} assistant)`);
+  logger.info(`  Found ${messages.length} indexable assistant messages (filtered: assistant-only, length>100 chars)`);
 
   const chunks = chunkMessages(messages, sessionId, filePath);
   if (chunks.length === 0) {

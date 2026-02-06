@@ -5,11 +5,17 @@ const logger = require('../../shared/logger');
 const { initDb, bufferToEmbedding } = require('./ingest');
 const { vectorIndex } = require('./vector-index');
 
-// Source weight tiers: prioritize curated memory over raw chat logs
+// Tiered RAG Architecture:
+// - Tier 1 (memory): Curated notes, full weight
+// - Tier 2 (chat/telegram): Filtered assistant responses >100 chars, reduced weight
+// - Tier 3 (recent context): Last 5-10 messages, no vector search (handled by context-pipeline)
+//
+// After Tier 2 content filtering (assistant-only, length>100), chat and telegram
+// have similar quality, so both receive 0.5 weight.
 const SOURCE_WEIGHTS = {
-  memory: 1.0,   // Tier 1: Curated notes - highest priority
-  chat: 0.7,     // Tier 2: Clawdbot sessions - useful but verbose
-  telegram: 0.5, // Tier 3: Raw chat - often noise
+  memory: 1.0,    // Tier 1: Curated notes - highest priority
+  chat: 0.5,      // Tier 2: Filtered assistant responses - quality decisions/explanations
+  telegram: 0.5,  // Tier 2: Filtered assistant responses - same quality as chat after filtering
 };
 
 // Embedding cache: normalized query → Float64Array (TTL-based)

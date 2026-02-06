@@ -216,6 +216,50 @@ chat
   });
 
 chat
+  .command('reindex')
+  .description('Clear existing chat index and re-ingest from scratch (applies new content filters)')
+  .option('-d, --db <path>', 'Database path')
+  .option('-s, --sessions <path>', 'Sessions directory')
+  .option('-y, --yes', 'Confirm deletion (REQUIRED)')
+  .action(async (options) => {
+    const { existsSync } = require('fs');
+    const Database = require('better-sqlite3');
+    const config = require('./shared/config');
+    const { ingestAll } = require('./packages/chat-ingest/ingest');
+    const dbPath = options.db || config.paths.chatDb;
+
+    if (!options.yes) {
+      console.error('\n⚠️  Chat Reindex requires --yes flag to confirm deletion.\n');
+      console.error('This will DELETE all existing chat chunks and re-ingest from scratch.');
+      console.error('New filters: assistant-only, length>100, no tool output, ANSI stripped\n');
+      console.error('Usage: node cli.js chat reindex --yes\n');
+      process.exit(1);
+    }
+
+    try {
+      if (existsSync(dbPath)) {
+        console.log('Clearing existing chat chunks...');
+        const db = new Database(dbPath);
+        const beforeCount = db.prepare('SELECT COUNT(*) as count FROM chat_chunks').get();
+        console.log(`  Deleting ${beforeCount.count} existing chunks...`);
+        // Note: db.exec() is SQLite execution, not shell execution (safe)
+        db.prepare('DELETE FROM chat_chunks').run();
+        db.prepare('DELETE FROM ingest_progress').run();
+        db.close();
+        console.log('✓ Cleared');
+      }
+
+      console.log('\nRe-ingesting with Tier 2 content filters...');
+      console.log('  Filters: assistant-only, length>100 chars, no tools, ANSI stripped\n');
+      const total = await ingestAll(options.db, options.sessions);
+      console.log(`\n✓ Done: ${total} chunks ingested\n`);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+chat
   .command('search <query>')
   .description('Search chat history')
   .option('-d, --db <path>', 'Database path')
