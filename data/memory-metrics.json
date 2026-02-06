@@ -2,7 +2,16 @@
   "initialized": "2026-02-05T00:00:00.000Z",
   "daily": {
     "2026-02-05": {
-      "totalQueries": 3,
+      "totalQueries": 19,
+      "memoryMisses": 0,
+      "manualOverrides": 0,
+      "totalHerdingMessages": 0,
+      "avgRAGScore": 0,
+      "ragScoreSum": 0,
+      "categories": {}
+    },
+    "2026-02-06": {
+      "totalQueries": 18,
       "memoryMisses": 0,
       "manualOverrides": 0,
       "totalHerdingMessages": 0,

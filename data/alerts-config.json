@@ -1,0 +1,14 @@
+{
+  "stuckThresholdSeconds": 300,
+  "deliveryMode": "system",
+  "spamControlMethod": "rateLimit",
+  "batchWindowSeconds": 30,
+  "rateLimitWindowMinutes": 5,
+  "exponentialBackoff": {
+    "enabled": true,
+    "baseDelayMinutes": 1,
+    "maxDelayMinutes": 60,
+    "multiplier": 2
+  },
+  "updatedAt": "2026-02-05T23:01:07.975Z"
+}

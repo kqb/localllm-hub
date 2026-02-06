@@ -1,0 +1,4 @@
+{"timestamp":"2026-02-03T06:41:54.918Z","cycle":1,"tier":1,"reasoning":"test reasoning","decision":"test decision","cost":0}
+{"timestamp":"2026-02-03T06:41:54.923Z","cycle":1,"tier":1,"reasoning":"tier 1","decision":"ignore","cost":0}
+{"timestamp":"2026-02-03T06:41:54.924Z","cycle":2,"tier":2,"reasoning":"tier 2","decision":"alert","cost":0.01}
+{"timestamp":"2026-02-03T06:41:54.924Z","cycle":3,"tier":3,"reasoning":"tier 3","decision":"escalate","cost":1}

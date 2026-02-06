@@ -1,0 +1,76 @@
+{
+  "enabled": false,
+  "mode": "dry-run",
+  "observation": {
+    "interval_seconds": 300,
+    "sources": ["email", "calendar", "git"],
+    "email": {
+      "check_interval_seconds": 600,
+      "priority_keywords": ["urgent", "asap", "critical"]
+    },
+    "calendar": {
+      "lookahead_hours": 24
+    },
+    "git": {
+      "repos": [
+        "~/clawd",
+        "~/Projects/localllm-hub"
+      ]
+    },
+    "files": {
+      "watch_paths": [
+        "~/clawd/memory"
+      ]
+    }
+  },
+  "reasoning": {
+    "tier1_model": "qwen2.5:14b",
+    "tier2_model": "claude-3-5-haiku-20241022",
+    "tier3_model": "claude-sonnet-4-5",
+    "tier1_threshold": 0.7,
+    "tier2_threshold": 0.85
+  },
+  "action": {
+    "whitelist": [
+      "alert",
+      "organize_files",
+      "commit_memory",
+      "update_docs"
+    ],
+    "forbidden": [
+      "delete_important",
+      "send_message_to_human",
+      "spend_money",
+      "modify_code",
+      "git_push"
+    ],
+    "rate_limits": {
+      "api_calls_per_day": 200,
+      "actions_per_day": 50,
+      "alerts_per_hour": 10
+    },
+    "deduplication_window_seconds": 3600
+  },
+  "safety": {
+    "max_cost_per_day": 30,
+    "circuit_breaker_threshold": 3,
+    "quiet_hours": {
+      "start": "23:00",
+      "end": "08:00"
+    },
+    "resource_limits": {
+      "max_memory_mb": 500,
+      "max_cpu_percent": 20
+    }
+  },
+  "memory": {
+    "database": "data/working-memory.db",
+    "thought_logs_dir": "data/thought-logs",
+    "checkpoint_interval_seconds": 300,
+    "retention_days": 30
+  },
+  "control": {
+    "heartbeat_interval_seconds": 60,
+    "health_check_interval_seconds": 300
+  }
+}

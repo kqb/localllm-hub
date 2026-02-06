@@ -26,10 +26,10 @@
       "injectAs": "system"
     },
     "routing": {
-      "enabled": true,
+      "enabled": false,
       "model": "qwen2.5:14b",
       "fallback": "claude_sonnet",
-      "enforceModel": true
+      "enforceModel": false
     },
     "systemNotes": {
       "enabled": true,

@@ -1,0 +1,26 @@
+{
+  "name": "@localllm/autonomous-agent",
+  "version": "0.1.0",
+  "description": "Autonomous agent system with tiered reasoning and safety controls (DORMANT)",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "node src/index.js",
+    "status": "node src/control.js status",
+    "dry-run": "node src/index.js --dry-run"
+  },
+  "keywords": [
+    "agent",
+    "autonomous",
+    "reasoning",
+    "safety"
+  ],
+  "author": "kqb",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "chokidar": "^4.0.3"
+  },
+  "devDependencies": {}
+}

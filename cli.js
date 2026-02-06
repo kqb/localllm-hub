@@ -402,6 +402,83 @@ pipeline
     }
   });
 
+// Autonomous Agent
+const agent = program
+  .command('agent')
+  .description('Autonomous agent control (DORMANT - requires explicit activation)');
+
+agent
+  .command('status')
+  .description('Show agent status')
+  .action(async () => {
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(execFile);
+    const { join } = require('path');
+
+    try {
+      const { stdout } = await execFileAsync('node', [
+        join(__dirname, 'packages/autonomous-agent/src/index.js'),
+        'status'
+      ]);
+      console.log(stdout);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+agent
+  .command('start')
+  .description('Start the autonomous agent')
+  .option('--live', 'Run in LIVE mode (default: dry-run)', false)
+  .action(async (options) => {
+    console.log('⚠️  AUTONOMOUS AGENT SYSTEM');
+    console.log('   This is DORMANT code - activation requires explicit user approval');
+    console.log('   Review DESIGN.md and safety controls before proceeding\n');
+
+    const mode = options.live ? 'LIVE' : 'DRY-RUN';
+    console.log(`Starting in ${mode} mode...\n`);
+
+    const { spawn } = require('child_process');
+    const { join } = require('path');
+
+    const args = ['packages/autonomous-agent/src/index.js'];
+    if (!options.live) {
+      args.push('--dry-run');
+    }
+
+    const child = spawn('node', args, {
+      cwd: __dirname,
+      stdio: 'inherit'
+    });
+
+    child.on('exit', (code) => {
+      process.exit(code);
+    });
+  });
+
+agent
+  .command('health')
+  .description('Run health check')
+  .action(async () => {
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(execFile);
+    const { join } = require('path');
+
+    try {
+      const { stdout } = await execFileAsync('node', [
+        join(__dirname, 'packages/autonomous-agent/src/index.js'),
+        'health'
+      ]);
+      console.log(stdout);
+    } catch (error) {
+      console.error('Error:', error.message);
+      process.exit(1);
+    }
+  });
+
 // Dashboard
 program
   .command('dashboard')
