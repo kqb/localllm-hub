@@ -7,6 +7,8 @@ import {
   useUpdateMemoryConfig,
 } from '@/api/queries';
 import { PromptEditor } from '@/components/router';
+import { CompactionCard, EconomicsCard } from '@/components/config';
+import { SkillsCard } from '@/components/tools';
 
 export function Config() {
   return (
@@ -14,6 +16,9 @@ export function Config() {
       <ClawdbotConfigCard />
       <MemoryConfigCard />
       <PromptEditor />
+      <CompactionCard />
+      <EconomicsCard />
+      <SkillsCard />
     </div>
   );
 }

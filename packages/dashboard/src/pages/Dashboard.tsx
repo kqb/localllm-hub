@@ -8,6 +8,7 @@ import { RouterHealth } from '@/components/router';
 import { TrustScore } from '@/components/trust';
 import { Alerts } from '@/components/alerts';
 import { Corrections } from '@/components/corrections';
+import { ChatCard, SearchCard, EmbeddingsCard } from '@/components/tools';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Dashboard() {
@@ -100,6 +101,19 @@ export function Dashboard() {
       {/* RAG Inspector */}
       <section>
         <RAGInspector />
+      {/* Chat */}
+      <section>
+        <ChatCard />
+      </section>
+
+      {/* Search */}
+      <section>
+        <SearchCard />
+      </section>
+
+      {/* Embeddings Explorer */}
+      <section>
+        <EmbeddingsCard />
       </section>
     </div>
   );

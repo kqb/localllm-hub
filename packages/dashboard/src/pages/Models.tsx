@@ -1,6 +1,7 @@
 import { Card, CardHeader, CardContent, LoadingText, Button, Badge } from '@/components/ui';
 import { useModels, useUnloadModel } from '@/api/queries';
 import { Routes } from '@/components/router';
+import { ModelManagerCard, BudgetCard } from '@/components/config';
 
 export function Models() {
   const { data, isLoading, error } = useModels();
@@ -20,14 +21,14 @@ export function Models() {
   return (
     <div className="max-w-[1400px] mx-auto p-6 flex flex-col gap-6">
       <Card>
-        <CardHeader>🤖 Model Management</CardHeader>
+        <CardHeader>🤖 Loaded Models</CardHeader>
         <CardContent>
           {isLoading && <LoadingText />}
           {error && <div className="text-red text-sm">Failed to load models</div>}
           {data?.error && <div className="text-red text-sm">{data.error}</div>}
           {data?.models && data.models.length === 0 && (
             <div className="text-text-2 text-sm text-center py-6">
-              No models available
+              No models loaded
             </div>
           )}
           {data?.models && data.models.length > 0 && (
@@ -66,6 +67,15 @@ export function Models() {
 
       {/* Routes */}
       <Routes />
+      {/* Model Manager */}
+      <section>
+        <ModelManagerCard />
+      </section>
+
+      {/* Budget Visualizer */}
+      <section>
+        <BudgetCard />
+      </section>
     </div>
   );
 }
