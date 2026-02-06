@@ -3,9 +3,28 @@
  *
  * Parses inline signals from agent terminal output.
  * Signals follow format: :::TYPE:payload:::
+ * 
+ * IMPORTANT: Only parses signals that appear at the START of a line
+ * to avoid false positives from documentation containing signal examples.
  */
 
-const SIGNAL_REGEX = /:::(DONE|HELP|ERROR|BLOCKED|PROGRESS):?([^:]*)?:::/g;
+// Match signals at start of line (after optional whitespace)
+// This prevents matching signals inside markdown code blocks or docs
+const SIGNAL_REGEX = /^\s*:::(DONE|HELP|ERROR|BLOCKED|PROGRESS):?([^:]*)?:::/gm;
+
+// Known false positive payloads from documentation examples
+const FALSE_POSITIVE_PAYLOADS = new Set([
+  'summary',
+  'question', 
+  'reason',
+  'message',
+  'MVP complete - builds and records',
+  'when project setup done',
+  'when recording works',
+  'when storage works',
+  'when done',
+  'if stuck on something',
+]);
 
 class SignalParser {
   /**
@@ -26,9 +45,21 @@ class SignalParser {
 
     while ((match = SIGNAL_REGEX.exec(text)) !== null) {
       const [, type, payload] = match;
+      const cleanPayload = (payload || '').trim();
+      
+      // Skip known false positive payloads from documentation
+      if (FALSE_POSITIVE_PAYLOADS.has(cleanPayload)) {
+        continue;
+      }
+      
+      // Skip if payload looks like documentation (contains backticks, "when", etc.)
+      if (cleanPayload.includes('`') || cleanPayload.startsWith('when ')) {
+        continue;
+      }
+      
       signals.push({
         type,
-        payload: payload || '',
+        payload: cleanPayload,
       });
     }
 
