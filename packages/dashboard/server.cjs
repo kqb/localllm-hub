@@ -24,12 +24,13 @@ const MAX_ACTIVITY_LOG_SIZE = 100;
 
 app.use(express.json());
 
-// Serve React app in production, proxy in development
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'dist')));
+// Serve React app (always serve if dist exists)
+const distPath = path.join(__dirname, 'dist');
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+  console.log('[Dashboard] Serving static files from:', distPath);
 } else {
-  // In dev mode, Vite dev server runs on port 3848 and proxies API requests here
-  console.log('[Dashboard] Running in development mode. Start Vite dev server with: npm run dev');
+  console.log('[Dashboard] No dist folder found. Run `npm run build` or start Vite dev server.');
 }
 
 // --- helpers ---
@@ -2789,6 +2790,17 @@ app.post('/api/alerts/delivery-config', (req, res) => {
 
 // Old WebSocket broadcast removed - now handled by DashboardWebSocketServer
 // Real-time agent monitoring with bidirectional communication
+
+// --- SPA fallback ---
+// Serve index.html for all non-API routes (React Router support)
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  if (existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('Dashboard not built. Run: npm run build');
+  }
+});
 
 // --- start ---
 
