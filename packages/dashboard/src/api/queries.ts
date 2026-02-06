@@ -13,7 +13,7 @@ export const queryKeys = {
   memoryConfig: ['memory', 'config'] as const,
   chatSessions: ['chat', 'sessions'] as const,
   zoidActivity: ['zoid', 'activity'] as const,
-  daemons: ['daemons'] as const,
+daemons: ['daemons'] as const,
   daemonLogs: (label: string, src: string) => ['daemons', label, 'logs', src] as const,
   memory: ['memory'] as const,
   memoryPerformance: ['memory', 'performance'] as const,
@@ -22,6 +22,12 @@ export const queryKeys = {
   contextPipelineHookStatus: ['contextPipeline', 'hookStatus'] as const,
   contextPipelineActivity: ['contextPipeline', 'activity'] as const,
   contextPipelineConfig: ['contextPipeline', 'config'] as const,
+routerHealth: ['router', 'health'] as const,
+  routerPrompt: ['router', 'prompt'] as const,
+  routes: ['routes'] as const,
+  alerts: ['alerts'] as const,
+  trust: ['trust'] as const,
+  corrections: ['corrections'] as const,
 };
 
 // Service Status
@@ -239,6 +245,11 @@ export function useContextPipelineHookStatus() {
   return useQuery({
     queryKey: queryKeys.contextPipelineHookStatus,
     queryFn: () => fetchApi<any>('/context-pipeline/hook-status'),
+// Router Health
+export function useRouterHealth() {
+  return useQuery({
+    queryKey: queryKeys.routerHealth,
+    queryFn: () => fetchApi<any>('/router/health'),
     refetchInterval: 30000,
   });
 }
@@ -247,6 +258,46 @@ export function useContextPipelineActivity() {
   return useQuery({
     queryKey: queryKeys.contextPipelineActivity,
     queryFn: () => fetchApi<any[]>('/context-pipeline/activity'),
+// Router Prompt
+export function useRouterPrompt() {
+  return useQuery({
+    queryKey: queryKeys.routerPrompt,
+    queryFn: () => fetchApi<any>('/router/prompt'),
+  });
+}
+
+export function useUpdateRouterPrompt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (content: string) =>
+      postApi('/router/prompt', { content }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.routerPrompt });
+    },
+  });
+}
+
+export function useTestRoute() {
+  return useMutation({
+    mutationFn: (prompt: string) =>
+      postApi('/routes/test', { prompt }),
+  });
+}
+
+// Routes
+export function useRoutes() {
+  return useQuery({
+    queryKey: queryKeys.routes,
+    queryFn: () => fetchApi<any>('/routes/config'),
+  });
+}
+
+// Alerts
+export function useAlerts() {
+  return useQuery({
+    queryKey: queryKeys.alerts,
+    queryFn: () => fetchApi<any[]>('/alerts'),
     refetchInterval: 30000,
   });
 }
@@ -266,5 +317,27 @@ export function useUpdateContextPipelineConfig() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.contextPipelineConfig });
     },
+// Trust Score
+export function useTrustScore() {
+  return useQuery({
+    queryKey: queryKeys.trust,
+    queryFn: () => fetchApi<any>('/trust/score'),
+    refetchInterval: 60000,
+  });
+}
+
+// Corrections
+export function useCorrections() {
+  return useQuery({
+    queryKey: queryKeys.corrections,
+    queryFn: () => fetchApi<any[]>('/corrections'),
+  });
+}
+
+export function useCorrection(name: string) {
+  return useQuery({
+    queryKey: ['correction', name],
+    queryFn: () => fetchApi<any>(`/corrections/${encodeURIComponent(name)}`),
+    enabled: !!name,
   });
 }
