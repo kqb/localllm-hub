@@ -6,12 +6,14 @@ import {
   useMemoryConfig,
   useUpdateMemoryConfig,
 } from '@/api/queries';
+import { PromptEditor } from '@/components/router';
 
 export function Config() {
   return (
     <div className="max-w-[1400px] mx-auto p-6 flex flex-col gap-6">
       <ClawdbotConfigCard />
       <MemoryConfigCard />
+      <PromptEditor />
     </div>
   );
 }

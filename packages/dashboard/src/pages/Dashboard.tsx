@@ -3,6 +3,10 @@ import { MLXStatus } from '@/components/mlx';
 import { ContextMonitor } from '@/components/context';
 import { AgentMonitor } from '@/components/agents';
 import { ZoidActivity } from '@/components/zoid';
+import { RouterHealth } from '@/components/router';
+import { TrustScore } from '@/components/trust';
+import { Alerts } from '@/components/alerts';
+import { Corrections } from '@/components/corrections';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Dashboard() {
@@ -41,6 +45,18 @@ export function Dashboard() {
       {/* Context Monitor */}
       <section>
         <ContextMonitor />
+      </section>
+
+      {/* Router Health, Trust Score Row */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <RouterHealth />
+        <TrustScore />
+        <Alerts />
+      </section>
+
+      {/* Corrections Timeline */}
+      <section>
+        <Corrections />
       </section>
 
       {/* Agent Monitor */}

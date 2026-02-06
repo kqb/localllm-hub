@@ -13,6 +13,12 @@ export const queryKeys = {
   memoryConfig: ['memory', 'config'] as const,
   chatSessions: ['chat', 'sessions'] as const,
   zoidActivity: ['zoid', 'activity'] as const,
+  routerHealth: ['router', 'health'] as const,
+  routerPrompt: ['router', 'prompt'] as const,
+  routes: ['routes'] as const,
+  alerts: ['alerts'] as const,
+  trust: ['trust'] as const,
+  corrections: ['corrections'] as const,
 };
 
 // Service Status
@@ -149,5 +155,83 @@ export function useLogZoidActivity() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.zoidActivity });
     },
+  });
+}
+
+// Router Health
+export function useRouterHealth() {
+  return useQuery({
+    queryKey: queryKeys.routerHealth,
+    queryFn: () => fetchApi<any>('/router/health'),
+    refetchInterval: 30000,
+  });
+}
+
+// Router Prompt
+export function useRouterPrompt() {
+  return useQuery({
+    queryKey: queryKeys.routerPrompt,
+    queryFn: () => fetchApi<any>('/router/prompt'),
+  });
+}
+
+export function useUpdateRouterPrompt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (content: string) =>
+      postApi('/router/prompt', { content }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.routerPrompt });
+    },
+  });
+}
+
+export function useTestRoute() {
+  return useMutation({
+    mutationFn: (prompt: string) =>
+      postApi('/routes/test', { prompt }),
+  });
+}
+
+// Routes
+export function useRoutes() {
+  return useQuery({
+    queryKey: queryKeys.routes,
+    queryFn: () => fetchApi<any>('/routes/config'),
+  });
+}
+
+// Alerts
+export function useAlerts() {
+  return useQuery({
+    queryKey: queryKeys.alerts,
+    queryFn: () => fetchApi<any[]>('/alerts'),
+    refetchInterval: 30000,
+  });
+}
+
+// Trust Score
+export function useTrustScore() {
+  return useQuery({
+    queryKey: queryKeys.trust,
+    queryFn: () => fetchApi<any>('/trust/score'),
+    refetchInterval: 60000,
+  });
+}
+
+// Corrections
+export function useCorrections() {
+  return useQuery({
+    queryKey: queryKeys.corrections,
+    queryFn: () => fetchApi<any[]>('/corrections'),
+  });
+}
+
+export function useCorrection(name: string) {
+  return useQuery({
+    queryKey: ['correction', name],
+    queryFn: () => fetchApi<any>(`/corrections/${encodeURIComponent(name)}`),
+    enabled: !!name,
   });
 }
