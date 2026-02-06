@@ -29,10 +29,10 @@ export function ContextMonitor() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-text-2">
-                  {data.total_tokens.toLocaleString()} / {data.limit.toLocaleString()} tokens
+                  {(data.total_tokens ?? 0).toLocaleString()} / {(data.limit ?? 0).toLocaleString()} tokens
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">{data.percentage.toFixed(1)}%</span>
+                  <span className="text-sm font-semibold">{(data.percentage ?? 0).toFixed(1)}%</span>
                   {getStatusBadge(data.percentage)}
                 </div>
               </div>
