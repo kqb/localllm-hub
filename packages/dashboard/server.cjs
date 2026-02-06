@@ -8,7 +8,7 @@ const { readFileSync, readdirSync } = require('fs');
 const os = require('os');
 
 const config = require('../../shared/config');
-const DashboardWebSocketServer = require('./websocket-server');
+const DashboardWebSocketServer = require('./websocket-server.cjs');
 
 const PORT = process.env.DASHBOARD_PORT || 3847;
 

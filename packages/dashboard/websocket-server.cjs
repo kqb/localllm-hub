@@ -7,7 +7,7 @@
 
 const WebSocket = require('ws');
 const AgentMonitor = require('../agent-monitor/monitor');
-const AlertManager = require('./alert-manager');
+const AlertManager = require('./alert-manager.cjs');
 
 class DashboardWebSocketServer {
   constructor(httpServer) {
