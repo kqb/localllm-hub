@@ -1026,6 +1026,61 @@ app.post('/api/agents/:sessionKey/send', (req, res) => {
   }
 });
 
+// --- Agent Watcher API ---
+
+app.get('/api/agent-watcher/sessions', (_req, res) => {
+  try {
+    const sessions = wsServer.getWatcher().getStatus();
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/agent-watcher/history/:session', (req, res) => {
+  try {
+    const sessionName = req.params.session;
+    const state = wsServer.getWatcher().sessions.get(sessionName);
+
+    if (!state) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const count = parseInt(req.query.count) || 50;
+    const history = state.getRecentHistory(count);
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/agent-watcher/sessions/:session', (req, res) => {
+  try {
+    const sessionName = req.params.session;
+    const { execFileSync } = require('child_process');
+
+    execFileSync('tmux', ['kill-session', '-t', sessionName], { timeout: 5000 });
+    wsServer.getWatcher().unwatchSession(sessionName);
+
+    res.json({ ok: true, message: `Killed ${sessionName}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/agent-watcher/sessions/:session/nudge', (req, res) => {
+  try {
+    const sessionName = req.params.session;
+    const text = req.body.text || '';
+
+    wsServer.getWatcher().tmux.sendKeys(sessionName, text, true);
+
+    res.json({ ok: true, message: `Sent nudge to ${sessionName}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Chat API ---
 
 const SESSION_DIR = path.join(os.homedir(), '.clawdbot', 'agents', 'main', 'sessions');

@@ -6,14 +6,14 @@
  */
 
 const WebSocket = require('ws');
-const AgentMonitor = require('../agent-monitor/monitor');
+const AgentWatcher = require('../agent-watcher/watcher');
 const AlertManager = require('./alert-manager.cjs');
 
 class DashboardWebSocketServer {
   constructor(httpServer) {
     this.wss = new WebSocket.Server({ server: httpServer, path: '/ws' });
     this.clients = new Set();
-    this.monitor = new AgentMonitor();
+    this.watcher = new AgentWatcher();
     this.alertManager = new AlertManager();
 
     this.init();
@@ -50,87 +50,69 @@ class DashboardWebSocketServer {
       });
     });
     
-    // Wire up agent monitor events
-    this.monitor.on('state_change', (data) => {
-      this.broadcast({ type: 'agent_state', ...data });
+    // Wire up agent watcher events
+    // The watcher emits events through individual SessionState instances
+    // We'll listen for session updates via periodic status polling instead
 
-      // Reset alert cooldown when agent resumes activity (state changes from STUCK)
-      if (data.prevState === 'stuck' && data.state !== 'stuck') {
-        this.alertManager.resetCooldown(data.session);
-        console.log(`[WebSocket] ${data.session}: resumed from stuck state, alert cooldown reset`);
-      }
+    // Start watcher - auto-detects all agent sessions
+    this.watcher.start().catch((err) => {
+      console.error('[WebSocket] Failed to start agent watcher:', err);
     });
 
-    this.monitor.on('progress', (data) => {
-      this.broadcast({ type: 'progress', ...data });
-    });
+    // Periodically broadcast agent status updates
+    this.statusInterval = setInterval(() => {
+      const sessions = this.watcher.getStatus();
+      this.broadcast({
+        type: 'agent_watcher_update',
+        sessions,
+        timestamp: Date.now()
+      });
 
-    this.monitor.on('agent_stuck', (data) => {
-      this.broadcast({ type: 'agent_stuck', ...data });
-
-      // Check spam control method
-      const config = this.alertManager.getConfig();
-
-      if (config.spamControlMethod === 'batch') {
-        // Queue for batching
-        if (this.alertManager.shouldAlert(data.session, 'agent_stuck')) {
-          this.alertManager.queueAlert(data.session, 'agent_stuck', data);
-          this.alertManager.markAlerted(data.session, 'agent_stuck');
-        }
-      } else {
-        // Immediate alert (with spam control)
-        if (this.alertManager.shouldAlert(data.session, 'agent_stuck')) {
-          this.notifyZoid('agent_stuck', data);
-          this.alertManager.markAlerted(data.session, 'agent_stuck');
-        }
-      }
-    });
-
-    this.monitor.on('agent_error', (data) => {
-      this.broadcast({ type: 'agent_error', ...data });
-
-      // Check spam control method
-      const config = this.alertManager.getConfig();
-
-      if (config.spamControlMethod === 'batch') {
-        // Queue for batching
-        if (this.alertManager.shouldAlert(data.session, 'agent_error')) {
-          this.alertManager.queueAlert(data.session, 'agent_error', data);
-          this.alertManager.markAlerted(data.session, 'agent_error');
-        }
-      } else {
-        // Immediate alert (always for errors - they're critical)
-        if (this.alertManager.shouldAlert(data.session, 'agent_error')) {
-          this.notifyZoid('agent_error', data);
-          this.alertManager.markAlerted(data.session, 'agent_error');
-        }
-      }
-    });
-
-    this.monitor.on('agent_complete', (data) => {
-      this.broadcast({ type: 'agent_complete', ...data });
-
-      // Check spam control method
-      const config = this.alertManager.getConfig();
-
-      if (config.spamControlMethod === 'batch') {
-        // Queue for batching
-        if (this.alertManager.shouldAlert(data.session, 'agent_complete')) {
-          this.alertManager.queueAlert(data.session, 'agent_complete', data);
-          this.alertManager.markAlerted(data.session, 'agent_complete');
-        }
-      } else {
-        // Immediate alert (optional, can be disabled if too noisy)
-        if (this.alertManager.shouldAlert(data.session, 'agent_complete')) {
-          this.notifyZoid('agent_complete', data);
-          this.alertManager.markAlerted(data.session, 'agent_complete');
+      // Check for stuck/error/complete states and trigger alerts
+      for (const session of sessions) {
+        if (session.state === 'error') {
+          const config = this.alertManager.getConfig();
+          if (config.spamControlMethod === 'batch') {
+            if (this.alertManager.shouldAlert(session.session, 'agent_error')) {
+              this.alertManager.queueAlert(session.session, 'agent_error', session);
+              this.alertManager.markAlerted(session.session, 'agent_error');
+            }
+          } else {
+            if (this.alertManager.shouldAlert(session.session, 'agent_error')) {
+              this.notifyZoid('agent_error', session);
+              this.alertManager.markAlerted(session.session, 'agent_error');
+            }
+          }
+        } else if (session.state === 'done') {
+          const config = this.alertManager.getConfig();
+          if (config.spamControlMethod === 'batch') {
+            if (this.alertManager.shouldAlert(session.session, 'agent_complete')) {
+              this.alertManager.queueAlert(session.session, 'agent_complete', session);
+              this.alertManager.markAlerted(session.session, 'agent_complete');
+            }
+          } else {
+            if (this.alertManager.shouldAlert(session.session, 'agent_complete')) {
+              this.notifyZoid('agent_complete', session);
+              this.alertManager.markAlerted(session.session, 'agent_complete');
+            }
+          }
+        } else if (session.idleMs > 300000 && session.state === 'working') {
+          // Stuck detection (5+ minutes idle while working)
+          const config = this.alertManager.getConfig();
+          if (config.spamControlMethod === 'batch') {
+            if (this.alertManager.shouldAlert(session.session, 'agent_stuck')) {
+              this.alertManager.queueAlert(session.session, 'agent_stuck', session);
+              this.alertManager.markAlerted(session.session, 'agent_stuck');
+            }
+          } else {
+            if (this.alertManager.shouldAlert(session.session, 'agent_stuck')) {
+              this.notifyZoid('agent_stuck', session);
+              this.alertManager.markAlerted(session.session, 'agent_stuck');
+            }
+          }
         }
       }
-    });
-    
-    // Start monitoring - auto-detect all Claude-related tmux sessions
-    // Pass empty array to enable auto-detection in monitor.js
-    this.monitor.start([]);
+    }, 5000); // Check every 5 seconds
 
     // Start batch flush timer if batching is enabled
     const config = this.alertManager.getConfig();
@@ -138,7 +120,7 @@ class DashboardWebSocketServer {
       this.startBatchFlushTimer();
     }
 
-    console.log('[WebSocket] Server initialized with auto-detection');
+    console.log('[WebSocket] Server initialized with agent-watcher');
   }
 
   startBatchFlushTimer() {
@@ -174,10 +156,10 @@ class DashboardWebSocketServer {
   
   sendInitialState(ws) {
     // Send current state of all agents to newly connected client
-    const states = this.monitor.getAllStates();
+    const sessions = this.watcher.getStatus();
     ws.send(JSON.stringify({
       type: 'initial_state',
-      agents: states,
+      agents: sessions,
       timestamp: Date.now(),
     }));
   }
@@ -233,7 +215,7 @@ class DashboardWebSocketServer {
 
   handleReloadAlertConfig() {
     this.alertManager.reloadConfig();
-    this.monitor.reloadConfig();
+    // Note: agent-watcher doesn't need config reload (uses constructor options)
 
     this.broadcast({
       type: 'config_reloaded',
@@ -263,26 +245,28 @@ class DashboardWebSocketServer {
   
   handleNudge(session) {
     console.log(`[WebSocket] Nudge requested for ${session}`);
-    
-    // Get current state
-    const state = this.monitor.getState(session);
-    if (!state) {
+
+    // Get current state from watcher
+    const sessionState = this.watcher.sessions.get(session);
+    if (!sessionState) {
       console.warn(`[WebSocket] Session ${session} not found`);
       return;
     }
-    
-    // Log interaction
-    this.monitor.logInteraction(session, 'user', 'nudge', 'User requested nudge', { state: state.state });
-    
+
+    const state = sessionState.toJSON();
+
+    // Send Enter key to nudge the session
+    this.watcher.tmux.sendKeys(session, '', true);
+
     // Notify Zoid for analysis
     this.notifyZoid('nudge_requested', {
       session,
       state: state.state,
       progress: state.progress,
-      lastOutput: state.last_output,
-      idleTime: (Date.now() - state.last_activity) / 1000,
+      lastOutput: '',
+      idleTime: state.idleMs / 1000,
     });
-    
+
     // Broadcast to dashboard
     this.broadcast({
       type: 'zoid_analyzing',
@@ -294,38 +278,30 @@ class DashboardWebSocketServer {
   
   handleSendCommand(session, command) {
     console.log(`[WebSocket] Command for ${session}: ${command}`);
-    
-    // Log interaction
-    this.monitor.logInteraction(session, 'user', 'send_command', command);
-    
-    // Send to tmux
-    const { execFile } = require('child_process');
-    execFile('tmux', ['send-keys', '-t', session, command, 'Enter'], (err) => {
-      if (err) {
-        console.error(`[WebSocket] Error sending command to ${session}:`, err);
-        this.broadcast({
-          type: 'command_failed',
-          session,
-          error: err.message,
-          timestamp: Date.now(),
-        });
-      } else {
-        this.broadcast({
-          type: 'command_sent',
-          session,
-          command,
-          timestamp: Date.now(),
-        });
-      }
-    });
+
+    // Send to tmux via watcher
+    try {
+      this.watcher.tmux.sendKeys(session, command, true);
+      this.broadcast({
+        type: 'command_sent',
+        session,
+        command,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error(`[WebSocket] Error sending command to ${session}:`, err);
+      this.broadcast({
+        type: 'command_failed',
+        session,
+        error: err.message,
+        timestamp: Date.now(),
+      });
+    }
   }
   
   handleKill(session) {
     console.log(`[WebSocket] Kill requested for ${session}`);
-    
-    // Log interaction
-    this.monitor.logInteraction(session, 'user', 'kill', 'User requested kill');
-    
+
     // Kill tmux session
     const { execFile } = require('child_process');
     execFile('tmux', ['kill-session', '-t', session], (err) => {
@@ -338,6 +314,8 @@ class DashboardWebSocketServer {
           timestamp: Date.now(),
         });
       } else {
+        // Unwatch the killed session
+        this.watcher.unwatchSession(session).catch(() => {});
         this.broadcast({
           type: 'session_killed',
           session,
@@ -371,9 +349,6 @@ class DashboardWebSocketServer {
     const durationMs = durationMinutes * 60 * 1000;
     this.alertManager.suppressAlerts(session, durationMs);
 
-    // Log interaction
-    this.monitor.logInteraction(session, 'user', 'suppress_alerts', `Suppressed for ${durationMinutes} minutes`);
-
     // Broadcast to dashboard
     this.broadcast({
       type: 'alerts_suppressed',
@@ -386,9 +361,6 @@ class DashboardWebSocketServer {
 
   handleUnsuppressAlerts(session) {
     this.alertManager.unsuppressAlerts(session);
-
-    // Log interaction
-    this.monitor.logInteraction(session, 'user', 'unsuppress_alerts', 'Alerts re-enabled');
 
     // Broadcast to dashboard
     this.broadcast({
@@ -482,8 +454,6 @@ class DashboardWebSocketServer {
   
   // Public API for server.js to call
   sendZoidMessage(session, message) {
-    this.monitor.logInteraction(session, 'zoid', 'message', message);
-    
     this.broadcast({
       type: 'zoid_message',
       session,
@@ -491,9 +461,14 @@ class DashboardWebSocketServer {
       timestamp: Date.now(),
     });
   }
-  
+
+  getWatcher() {
+    return this.watcher;
+  }
+
+  // Legacy compatibility
   getMonitor() {
-    return this.monitor;
+    return this.watcher;
   }
 }
 
