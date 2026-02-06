@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Header, TabBar } from '@/components/layout';
-import { Dashboard } from '@/pages/Dashboard';
+import { Dashboard, Models, Config, Development, Logs } from '@/pages';
 import { useUIStore } from '@/stores/uiStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAgentStore } from '@/stores/agentStore';
@@ -33,6 +33,37 @@ function AppContent() {
             updateAgent(message.session, { progress: message.progress as number });
           }
           break;
+        case 'agent_stuck':
+          if (message.session && typeof message.session === 'string') {
+            updateAgent(message.session, {
+              state: 'STUCK',
+              last_output: (message.output as string) || '',
+            });
+          }
+          break;
+        case 'agent_error':
+          if (message.session && typeof message.session === 'string') {
+            updateAgent(message.session, {
+              state: 'ERROR',
+              last_output: (message.output as string) || '',
+            });
+          }
+          break;
+        case 'agent_complete':
+          if (message.session && typeof message.session === 'string') {
+            updateAgent(message.session, {
+              state: 'IDLE',
+              progress: 100,
+            });
+          }
+          break;
+        case 'initial_state':
+          if (message.agents && Array.isArray(message.agents)) {
+            message.agents.forEach((agent: any) => {
+              setAgent(agent.session, agent);
+            });
+          }
+          break;
       }
     },
     onOpen: () => console.log('[WebSocket] Connected'),
@@ -45,18 +76,10 @@ function AppContent() {
       <TabBar />
       <main className="flex-1">
         {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'models' && (
-          <div className="p-6 text-text-2">Models page - Coming soon</div>
-        )}
-        {activeTab === 'config' && (
-          <div className="p-6 text-text-2">Config page - Coming soon</div>
-        )}
-        {activeTab === 'development' && (
-          <div className="p-6 text-text-2">Development page - Coming soon</div>
-        )}
-        {activeTab === 'logs' && (
-          <div className="p-6 text-text-2">Logs page - Coming soon</div>
-        )}
+        {activeTab === 'models' && <Models />}
+        {activeTab === 'config' && <Config />}
+        {activeTab === 'development' && <Development />}
+        {activeTab === 'logs' && <Logs />}
       </main>
     </div>
   );
