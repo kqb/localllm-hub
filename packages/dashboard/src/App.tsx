@@ -64,6 +64,25 @@ function AppContent() {
             });
           }
           break;
+        case 'agent_watcher_update':
+          // New agent-watcher signal-based updates
+          if (message.sessions && Array.isArray(message.sessions)) {
+            message.sessions.forEach((session: any) => {
+              // Map watcher state to UI state
+              const uiState = session.state === 'done' ? 'IDLE' 
+                : session.state === 'error' ? 'ERROR'
+                : session.state === 'waiting_input' ? 'STUCK'
+                : 'WORKING';
+              setAgent(session.session, {
+                session: session.session,
+                state: uiState,
+                progress: session.progress || 0,
+                last_activity: session.lastActivity || Date.now(),
+                last_output: session.recentSignals?.[0]?.payload || '',
+              });
+            });
+          }
+          break;
       }
     },
     onOpen: () => console.log('[WebSocket] Connected'),
