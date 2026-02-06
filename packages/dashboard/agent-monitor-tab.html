@@ -1,0 +1,417 @@
+<!-- Agent Monitor Tab - Add to existing dashboard -->
+
+<!-- CSS Styles -->
+<style>
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.agent-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  position: relative;
+}
+
+.agent-card.state-working { border-left: 4px solid var(--green); }
+.agent-card.state-thinking { border-left: 4px solid var(--blue); }
+.agent-card.state-stuck { border-left: 4px solid var(--yellow); }
+.agent-card.state-error { border-left: 4px solid var(--red); }
+.agent-card.state-complete { border-left: 4px solid var(--green); }
+
+.agent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.agent-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.agent-state {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.state-working { background: var(--green); color: black; }
+.state-thinking { background: var(--blue); color: white; }
+.state-stuck { background: var(--yellow); color: black; }
+.state-error { background: var(--red); color: white; }
+.state-idle { background: gray; color: white; }
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.3s ease;
+}
+
+.agent-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+.stat {
+  text-align: center;
+  padding: 0.5rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+
+.stat-label {
+  opacity: 0.7;
+  font-size: 0.75rem;
+}
+
+.stat-value {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.agent-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: opacity 0.2s;
+}
+
+.btn:hover { opacity: 0.8; }
+
+.btn-primary { background: var(--blue); color: white; }
+.btn-success { background: var(--green); color: black; }
+.btn-danger { background: var(--red); color: white; }
+.btn-secondary { background: gray; color: white; }
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: gray;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.connected { background: var(--green); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.command-input {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.command-input input {
+  flex: 1;
+  padding: 0.5rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  color: white;
+}
+</style>
+
+<!-- Tab Content -->
+<div id="tab-agent-monitor" class="tab-panel" role="tabpanel" style="display:none">
+  <h2>🤖 Agent Monitor - Real-Time Orchestration</h2>
+  
+  <div class="connection-status">
+    <div class="status-dot" id="ws-status-dot"></div>
+    <span id="ws-status-text">Connecting...</span>
+  </div>
+  
+  <div class="agent-grid" id="agent-grid">
+    <!-- Agent cards will be inserted here -->
+  </div>
+  
+  <div style="margin-top: 2rem; opacity: 0.6; font-size: 0.9rem;">
+    <strong>WebSocket:</strong> <span id="ws-url">ws://localhost:3848</span> | 
+    <strong>Events:</strong> <span id="event-count">0</span>
+  </div>
+</div>
+
+<!-- JavaScript -->
+<script>
+(function() {
+  let ws = null;
+  let eventCount = 0;
+  let agents = {};
+  let reconnectTimeout = null;
+  
+  function initWebSocket() {
+    const url = 'ws://localhost:3848';
+    document.getElementById('ws-url').textContent = url;
+    
+    ws = new WebSocket(url);
+    
+    ws.onopen = () => {
+      console.log('[AgentMonitor] WebSocket connected');
+      updateConnectionStatus(true);
+      
+      // Fetch initial state via HTTP
+      fetchAgents();
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        eventCount++;
+        document.getElementById('event-count').textContent = eventCount;
+        
+        handleEvent(data);
+      } catch (err) {
+        console.error('[AgentMonitor] Error parsing message:', err);
+      }
+    };
+    
+    ws.onerror = (err) => {
+      console.error('[AgentMonitor] WebSocket error:', err);
+      updateConnectionStatus(false);
+    };
+    
+    ws.onclose = () => {
+      console.log('[AgentMonitor] WebSocket closed');
+      updateConnectionStatus(false);
+      
+      // Reconnect after 5 seconds
+      reconnectTimeout = setTimeout(() => {
+        console.log('[AgentMonitor] Reconnecting...');
+        initWebSocket();
+      }, 5000);
+    };
+  }
+  
+  function updateConnectionStatus(connected) {
+    const dot = document.getElementById('ws-status-dot');
+    const text = document.getElementById('ws-status-text');
+    
+    if (connected) {
+      dot.classList.add('connected');
+      text.textContent = 'Connected';
+    } else {
+      dot.classList.remove('connected');
+      text.textContent = 'Disconnected (reconnecting...)';
+    }
+  }
+  
+  function handleEvent(data) {
+    console.log('[AgentMonitor] Event:', data.type || data.event, data.session);
+    
+    const eventType = data.type || data.event;
+    
+    switch (eventType) {
+      case 'state_change':
+      case 'progress':
+        updateAgent(data.session, data);
+        break;
+      
+      case 'agent_stuck':
+        updateAgent(data.session, { state: 'stuck' });
+        break;
+      
+      case 'agent_error':
+        updateAgent(data.session, { state: 'error' });
+        break;
+      
+      case 'agent_complete':
+        updateAgent(data.session, { state: 'complete' });
+        break;
+      
+      case 'command_sent':
+        console.log(`[AgentMonitor] Command sent to ${data.session}:`, data.command);
+        break;
+    }
+  }
+  
+  function fetchAgents() {
+    fetch('http://localhost:3848/api/agents')
+      .then(r => r.json())
+      .then(data => {
+        data.agents.forEach(agent => {
+          agents[agent.session] = agent;
+        });
+        renderAgents();
+      })
+      .catch(err => console.error('[AgentMonitor] Error fetching agents:', err));
+  }
+  
+  function updateAgent(session, updates) {
+    if (!agents[session]) {
+      agents[session] = { session };
+    }
+    
+    Object.assign(agents[session], updates);
+    renderAgents();
+  }
+  
+  function renderAgents() {
+    const grid = document.getElementById('agent-grid');
+    
+    if (Object.keys(agents).length === 0) {
+      grid.innerHTML = '<p style="opacity:0.6">No agents found. Start a wingman to see it here!</p>';
+      return;
+    }
+    
+    grid.innerHTML = Object.values(agents).map(agent => `
+      <div class="agent-card state-${agent.state || 'idle'}">
+        <div class="agent-header">
+          <div class="agent-name">${agent.session}</div>
+          <div class="agent-state state-${agent.state || 'idle'}">${agent.state || 'idle'}</div>
+        </div>
+        
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${agent.progress || 0}%"></div>
+        </div>
+        <div style="font-size: 0.85rem; opacity: 0.8; margin-top: 0.25rem;">
+          Progress: ${agent.progress || 0}%
+        </div>
+        
+        <div class="agent-stats">
+          <div class="stat">
+            <div class="stat-label">Files Written</div>
+            <div class="stat-value">${agent.files_written || agent.indicators?.filesWritten || 0}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Files Read</div>
+            <div class="stat-value">${agent.files_read || agent.indicators?.filesRead || 0}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Thinking</div>
+            <div class="stat-value">${agent.contemplation_time || agent.indicators?.thinkingTime || 0}s</div>
+          </div>
+        </div>
+        
+        <div class="agent-controls">
+          <button class="btn btn-primary" onclick="sendCommand('${agent.session}', '')">
+            Nudge
+          </button>
+          <button class="btn btn-secondary" onclick="viewLogs('${agent.session}')">
+            Logs
+          </button>
+          <button class="btn btn-danger" onclick="killAgent('${agent.session}')">
+            Kill
+          </button>
+        </div>
+        
+        <div class="command-input">
+          <input type="text" placeholder="Send command..." id="cmd-${agent.session}" 
+                 onkeypress="if(event.key==='Enter') sendCustomCommand('${agent.session}')">
+          <button class="btn btn-success" onclick="sendCustomCommand('${agent.session}')">
+            Send
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  window.sendCommand = function(session, command) {
+    fetch(`http://localhost:3848/api/agents/${session}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: command || '', source: 'dashboard' })
+    })
+    .then(r => r.json())
+    .then(data => {
+      console.log('[AgentMonitor] Command sent:', data);
+      alert(`✅ Command queued: ${data.jobId}`);
+    })
+    .catch(err => {
+      console.error('[AgentMonitor] Error sending command:', err);
+      alert('❌ Failed to send command');
+    });
+  };
+  
+  window.sendCustomCommand = function(session) {
+    const input = document.getElementById(`cmd-${session}`);
+    const command = input.value.trim();
+    
+    if (!command) return;
+    
+    sendCommand(session, command);
+    input.value = '';
+  };
+  
+  window.viewLogs = function(session) {
+    fetch(`http://localhost:3848/api/agents/${session}/output?lines=50`)
+      .then(r => r.json())
+      .then(data => {
+        alert(`Logs for ${session}:\n\n${data.output}`);
+      })
+      .catch(err => alert('Failed to fetch logs'));
+  };
+  
+  window.killAgent = function(session) {
+    if (!confirm(`Kill agent ${session}?`)) return;
+    
+    fetch(`http://localhost:3848/api/agents/${session}/kill`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        alert(`✅ Agent ${session} killed`);
+        delete agents[session];
+        renderAgents();
+      })
+      .catch(err => alert('Failed to kill agent'));
+  };
+  
+  // Initialize when tab is shown
+  document.addEventListener('DOMContentLoaded', () => {
+    // Add tab button if not exists
+    const tabBar = document.querySelector('.tabs-nav');
+    if (tabBar && !document.querySelector('[data-tab="agent-monitor"]')) {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn';
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', 'false');
+      btn.setAttribute('data-tab', 'agent-monitor');
+      btn.onclick = () => switchTab('agent-monitor');
+      btn.textContent = 'Agent Monitor';
+      tabBar.appendChild(btn);
+    }
+    
+    initWebSocket();
+    
+    // Refresh agents every 10 seconds (fallback)
+    setInterval(fetchAgents, 10000);
+  });
+})();
+</script>

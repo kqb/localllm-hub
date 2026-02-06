@@ -2579,20 +2579,142 @@ app.get('/api/alerts/system', async (_req, res) => {
   }
 });
 
-// --- Alert Delivery Config ---
+// --- Alert Configuration ---
 
-app.get('/api/alerts/delivery-config', (_req, res) => {
+app.get('/api/alerts/config', (_req, res) => {
   try {
     const dataDir = path.join(__dirname, '../../data');
     const configPath = path.join(dataDir, 'alerts-config.json');
 
     // Default config
     let config = {
-      deliveryMode: 'system', // 'system' or 'direct'
+      stuckThresholdSeconds: 300,
+      deliveryMode: 'system',
+      spamControlMethod: 'rateLimit',
+      batchWindowSeconds: 30,
+      rateLimitWindowMinutes: 5,
+      exponentialBackoff: {
+        enabled: true,
+        baseDelayMinutes: 1,
+        maxDelayMinutes: 60,
+        multiplier: 2,
+      },
       updatedAt: new Date().toISOString(),
     };
 
     // Load existing config if available
+    if (existsSync(configPath)) {
+      try {
+        const existingConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+        config = { ...config, ...existingConfig };
+      } catch (err) {
+        console.warn('[API] Error loading alerts config:', err.message);
+      }
+    }
+
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/alerts/config', (req, res) => {
+  try {
+    const {
+      stuckThresholdSeconds,
+      deliveryMode,
+      spamControlMethod,
+      batchWindowSeconds,
+      rateLimitWindowMinutes,
+      exponentialBackoff,
+    } = req.body;
+    const { writeFileSync, mkdirSync } = require('fs');
+
+    // Validate inputs
+    if (stuckThresholdSeconds !== undefined && (typeof stuckThresholdSeconds !== 'number' || stuckThresholdSeconds < 10)) {
+      return res.status(400).json({ error: 'stuckThresholdSeconds must be a number >= 10' });
+    }
+
+    if (deliveryMode !== undefined && !['system', 'direct'].includes(deliveryMode)) {
+      return res.status(400).json({ error: 'deliveryMode must be "system" or "direct"' });
+    }
+
+    if (spamControlMethod !== undefined && !['none', 'batch', 'rateLimit', 'exponentialBackoff'].includes(spamControlMethod)) {
+      return res.status(400).json({ error: 'spamControlMethod must be one of: none, batch, rateLimit, exponentialBackoff' });
+    }
+
+    if (batchWindowSeconds !== undefined && (typeof batchWindowSeconds !== 'number' || batchWindowSeconds < 10)) {
+      return res.status(400).json({ error: 'batchWindowSeconds must be a number >= 10' });
+    }
+
+    if (rateLimitWindowMinutes !== undefined && (typeof rateLimitWindowMinutes !== 'number' || rateLimitWindowMinutes < 1)) {
+      return res.status(400).json({ error: 'rateLimitWindowMinutes must be a number >= 1' });
+    }
+
+    const dataDir = path.join(__dirname, '../../data');
+    const configPath = path.join(dataDir, 'alerts-config.json');
+
+    // Load existing config
+    let config = {};
+    if (existsSync(configPath)) {
+      try {
+        config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      } catch (err) {
+        console.warn('[API] Error loading existing config:', err.message);
+      }
+    }
+
+    // Merge updates
+    if (stuckThresholdSeconds !== undefined) config.stuckThresholdSeconds = stuckThresholdSeconds;
+    if (deliveryMode !== undefined) config.deliveryMode = deliveryMode;
+    if (spamControlMethod !== undefined) config.spamControlMethod = spamControlMethod;
+    if (batchWindowSeconds !== undefined) config.batchWindowSeconds = batchWindowSeconds;
+    if (rateLimitWindowMinutes !== undefined) config.rateLimitWindowMinutes = rateLimitWindowMinutes;
+    if (exponentialBackoff !== undefined) config.exponentialBackoff = exponentialBackoff;
+
+    config.updatedAt = new Date().toISOString();
+
+    // Ensure data directory exists
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    console.log('[API] Alert configuration updated:', config);
+
+    // Notify WebSocket server to reload config
+    if (wsServer) {
+      wsServer.sendZoidMessage('system', 'Alert configuration updated');
+      setTimeout(() => {
+        wsServer.alertManager.reloadConfig();
+        wsServer.monitor.reloadConfig();
+        console.log('[API] Alert configuration reloaded in WebSocket server');
+      }, 100);
+    }
+
+    res.json({
+      success: true,
+      config,
+      message: 'Alert configuration updated',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Alert Delivery Config (Legacy Endpoint) ---
+
+app.get('/api/alerts/delivery-config', (_req, res) => {
+  try {
+    const dataDir = path.join(__dirname, '../../data');
+    const configPath = path.join(dataDir, 'alerts-config.json');
+
+    let config = {
+      deliveryMode: 'system',
+      updatedAt: new Date().toISOString(),
+    };
+
     if (existsSync(configPath)) {
       try {
         config = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -2612,7 +2734,6 @@ app.post('/api/alerts/delivery-config', (req, res) => {
     const { deliveryMode } = req.body;
     const { writeFileSync, mkdirSync } = require('fs');
 
-    // Validate delivery mode
     if (!['system', 'direct'].includes(deliveryMode)) {
       return res.status(400).json({ error: 'Invalid deliveryMode. Must be "system" or "direct".' });
     }
@@ -2620,20 +2741,32 @@ app.post('/api/alerts/delivery-config', (req, res) => {
     const dataDir = path.join(__dirname, '../../data');
     const configPath = path.join(dataDir, 'alerts-config.json');
 
-    // Ensure data directory exists
+    let config = {};
+    if (existsSync(configPath)) {
+      try {
+        config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      } catch (err) {
+        console.warn('[API] Error loading existing config:', err.message);
+      }
+    }
+
+    config.deliveryMode = deliveryMode;
+    config.updatedAt = new Date().toISOString();
+
     if (!existsSync(dataDir)) {
       mkdirSync(dataDir, { recursive: true });
     }
 
-    // Update config
-    const config = {
-      deliveryMode,
-      updatedAt: new Date().toISOString(),
-    };
-
     writeFileSync(configPath, JSON.stringify(config, null, 2));
 
     console.log(`[API] Alert delivery mode updated to: ${deliveryMode}`);
+
+    if (wsServer) {
+      setTimeout(() => {
+        wsServer.alertManager.reloadConfig();
+        wsServer.monitor.reloadConfig();
+      }, 100);
+    }
 
     res.json({
       success: true,
