@@ -3,6 +3,7 @@ import { MLXStatus } from '@/components/mlx';
 import { ContextMonitor } from '@/components/context';
 import { AgentMonitor } from '@/components/agents';
 import { ZoidActivity } from '@/components/zoid';
+import { ChatCard, SearchCard, EmbeddingsCard } from '@/components/tools';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 export function Dashboard() {
@@ -60,6 +61,21 @@ export function Dashboard() {
       {/* Zoid Activity */}
       <section>
         <ZoidActivity />
+      </section>
+
+      {/* Chat */}
+      <section>
+        <ChatCard />
+      </section>
+
+      {/* Search */}
+      <section>
+        <SearchCard />
+      </section>
+
+      {/* Embeddings Explorer */}
+      <section>
+        <EmbeddingsCard />
       </section>
     </div>
   );

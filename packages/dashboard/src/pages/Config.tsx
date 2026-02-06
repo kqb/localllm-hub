@@ -6,12 +6,17 @@ import {
   useMemoryConfig,
   useUpdateMemoryConfig,
 } from '@/api/queries';
+import { CompactionCard, EconomicsCard } from '@/components/config';
+import { SkillsCard } from '@/components/tools';
 
 export function Config() {
   return (
     <div className="max-w-[1400px] mx-auto p-6 flex flex-col gap-6">
       <ClawdbotConfigCard />
       <MemoryConfigCard />
+      <CompactionCard />
+      <EconomicsCard />
+      <SkillsCard />
     </div>
   );
 }
