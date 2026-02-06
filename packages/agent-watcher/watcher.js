@@ -24,10 +24,48 @@ class AgentWatcher {
     this.scanInterval = options.scanInterval || 10000; // 10s
     this.idleCheckInterval = options.idleCheckInterval || 60000; // 60s
     this.idleThreshold = options.idleThreshold || 300000; // 5 minutes
+    this.dedupWindowMs = options.dedupWindowMs || 5000; // 5s dedup window
+
+    // Signal deduplication: session -> Map<signalKey, lastSeenTimestamp>
+    this.recentSignals = new Map();
 
     // Interval handles
     this._scanTimer = null;
     this._idleCheckTimer = null;
+  }
+
+  /**
+   * Check if signal is a duplicate (same type+payload within dedupWindowMs)
+   * @param {string} sessionName
+   * @param {{type: string, payload: string}} signal
+   * @returns {boolean}
+   */
+  isDuplicateSignal(sessionName, signal) {
+    const key = `${signal.type}:${signal.payload || ''}`;
+    
+    if (!this.recentSignals.has(sessionName)) {
+      this.recentSignals.set(sessionName, new Map());
+    }
+    
+    const sessionSignals = this.recentSignals.get(sessionName);
+    const lastSeen = sessionSignals.get(key);
+    const now = Date.now();
+    
+    if (lastSeen && (now - lastSeen) < this.dedupWindowMs) {
+      return true; // Duplicate within window
+    }
+    
+    sessionSignals.set(key, now);
+    
+    // Cleanup old entries (keep map from growing unbounded)
+    if (sessionSignals.size > 100) {
+      const cutoff = now - this.dedupWindowMs;
+      for (const [k, ts] of sessionSignals) {
+        if (ts < cutoff) sessionSignals.delete(k);
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -83,6 +121,11 @@ class AgentWatcher {
 
         // Process each signal
         for (const signal of signals) {
+          // Skip duplicates (same signal within 5s window)
+          if (this.isDuplicateSignal(sessionName, signal)) {
+            continue;
+          }
+
           console.log(`[Watcher] ${sessionName} signal: ${signal.type} ${signal.payload || ''}`);
 
           // Add timestamp if not present
