@@ -53,8 +53,13 @@ const defaults = {
     rag: {
       enabled: true,
       topK: 5,
-      minScore: 0.3,
+      minScore: 0.50,  // Applied to weighted scores (memory=1.0, chat=0.7, telegram=0.5)
       sources: ['memory', 'chat', 'telegram'],
+      sourceWeights: {
+        memory: 1.0,   // Tier 1: Curated notes - highest priority
+        chat: 0.7,     // Tier 2: Clawdbot sessions - useful but verbose
+        telegram: 0.5, // Tier 3: Raw chat - often noise
+      },
       injectAs: 'system',
     },
     routing: {

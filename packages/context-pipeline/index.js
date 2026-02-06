@@ -262,8 +262,17 @@ async function assembleContext(message, sessionId, options = {}) {
             const filtered = searchResults.filter(r => r.score >= minScore);
             const ragTime = Date.now() - ragStart;
 
+            // Log source distribution
+            const sourceDistribution = filtered.reduce((acc, r) => {
+              acc[r.source] = (acc[r.source] || 0) + 1;
+              return acc;
+            }, {});
+            const distStr = Object.entries(sourceDistribution)
+              .map(([src, count]) => `${src}: ${count}`)
+              .join(', ');
+
             recordStage('search', ragTime); // Optimization #8
-            logger.debug(`RAG: ${filtered.length}/${searchResults.length} results (${ragTime}ms)`);
+            logger.debug(`RAG: ${filtered.length}/${searchResults.length} results (${distStr}), ${ragTime}ms`);
             return filtered;
           })()
         : Promise.resolve([]),
@@ -331,8 +340,17 @@ async function assembleContext(message, sessionId, options = {}) {
         result.ragContext = searchResults.filter(r => r.score >= minScore);
         const ragTime = Date.now() - ragStart;
 
+        // Log source distribution
+        const sourceDistribution = result.ragContext.reduce((acc, r) => {
+          acc[r.source] = (acc[r.source] || 0) + 1;
+          return acc;
+        }, {});
+        const distStr = Object.entries(sourceDistribution)
+          .map(([src, count]) => `${src}: ${count}`)
+          .join(', ');
+
         recordStage('search', ragTime); // Optimization #8
-        logger.debug(`Found ${result.ragContext.length} RAG results (${searchResults.length} total, ${result.ragContext.length} above threshold)`);
+        logger.debug(`Found ${result.ragContext.length} RAG results (${searchResults.length} total, ${distStr})`);
       } catch (err) {
         logger.error(`RAG search failed: ${err.message}`);
         result.ragContext = [];

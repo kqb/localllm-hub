@@ -3,6 +3,13 @@ const config = require('../../shared/config');
 const logger = require('../../shared/logger');
 const { initDb, bufferToEmbedding } = require('./ingest');
 
+// Source weight tiers: prioritize curated memory over raw chat logs
+const SOURCE_WEIGHTS = {
+  memory: 1.0,   // Tier 1: Curated notes - highest priority
+  chat: 0.7,     // Tier 2: Clawdbot sessions - useful but verbose
+  telegram: 0.5, // Tier 3: Raw chat - often noise
+};
+
 /**
  * In-memory vector index for fast similarity search.
  * Preloads all chunk embeddings from SQLite into a contiguous Float32Array matrix.
@@ -178,11 +185,14 @@ class VectorIndex {
     }
 
     // Compute dot products (= cosine similarity on pre-normalized vectors)
+    // Apply source weights to prioritize memory over chat/telegram
     const scores = new Float32Array(n);
+    const rawScores = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       // Apply source filter
       if (sourceFilter && !sourceFilter.includes(this.metadata[i].source)) {
         scores[i] = -1;
+        rawScores[i] = -1;
         continue;
       }
 
@@ -191,7 +201,12 @@ class VectorIndex {
       for (let j = 0; j < this.dim; j++) {
         dot += q[j] * this.matrix[offset + j];
       }
-      scores[i] = dot;
+
+      // Apply source weight
+      const source = this.metadata[i].source;
+      const weight = SOURCE_WEIGHTS[source] || 1.0;
+      rawScores[i] = dot;
+      scores[i] = dot * weight;
     }
 
     // Find top-K using indices sort
@@ -209,8 +224,22 @@ class VectorIndex {
         source: this.metadata[idx].source,
         text: this.metadata[idx].text,
         score,
+        rawScore: rawScores[idx],
         meta: this.metadata[idx].meta,
       });
+    }
+
+    // Log source distribution for debugging
+    const sourceDistribution = results.reduce((acc, r) => {
+      acc[r.source] = (acc[r.source] || 0) + 1;
+      return acc;
+    }, {});
+    const distStr = Object.entries(sourceDistribution)
+      .map(([src, count]) => `${src}: ${count}`)
+      .join(', ');
+
+    if (results.length > 0) {
+      logger.debug(`VectorIndex: ${results.length} results (${distStr})`);
     }
 
     return results;

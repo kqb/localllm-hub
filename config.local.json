@@ -17,12 +17,17 @@
     "rag": {
       "enabled": true,
       "topK": 15,
-      "minScore": 0.3,
+      "minScore": 0.50,
       "sources": [
         "memory",
         "chat",
         "telegram"
       ],
+      "sourceWeights": {
+        "memory": 1.0,
+        "chat": 0.7,
+        "telegram": 0.5
+      },
       "injectAs": "system"
     },
     "routing": {

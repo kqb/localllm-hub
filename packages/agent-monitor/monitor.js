@@ -413,16 +413,8 @@ class AgentMonitor extends EventEmitter {
         if (targetSessions.length === 0) {
           const allSessions = await this.getSessions();
           // Filter for Claude Code sessions (contain 'claude' or common patterns)
-          this.sessions = allSessions.filter(s => 
-            s.name.includes('relationship-os') ||
-            s.name.includes('system-improvements') ||
-            s.name.includes('claude') ||
-            s.name.includes('omi') ||
-            s.name.includes('port-') ||
-            s.name.includes('-impl') ||
-            s.name.includes('-ui') ||
-            s.name.includes('-api')
-          );
+          // Show ALL tmux sessions - no filtering
+          this.sessions = allSessions;
         }
         
         // Monitor each session

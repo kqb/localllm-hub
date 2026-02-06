@@ -5,6 +5,13 @@ const logger = require('../../shared/logger');
 const { initDb, bufferToEmbedding } = require('./ingest');
 const { vectorIndex } = require('./vector-index');
 
+// Source weight tiers: prioritize curated memory over raw chat logs
+const SOURCE_WEIGHTS = {
+  memory: 1.0,   // Tier 1: Curated notes - highest priority
+  chat: 0.7,     // Tier 2: Clawdbot sessions - useful but verbose
+  telegram: 0.5, // Tier 3: Raw chat - often noise
+};
+
 // Embedding cache: normalized query → Float64Array (TTL-based)
 const embeddingCache = new Map();
 const CACHE_MAX = 200;
@@ -139,10 +146,13 @@ async function unifiedSearch(query, opts = {}) {
 
       for (const chunk of chunks) {
         const embedding = bufferToEmbedding(chunk.embedding);
+        const rawScore = cosineSimilarity(queryVector, embedding);
+        const weightedScore = rawScore * SOURCE_WEIGHTS.memory;
         allResults.push({
           source: 'memory',
           text: chunk.text,
-          score: cosineSimilarity(queryVector, embedding),
+          score: weightedScore,
+          rawScore,
           meta: {
             file: chunk.file,
             startLine: chunk.start_line,
@@ -175,10 +185,13 @@ async function unifiedSearch(query, opts = {}) {
         const chunks = db.prepare('SELECT * FROM chat_chunks').all();
         for (const chunk of chunks) {
           const embedding = bufferToEmbedding(chunk.embedding);
+          const rawScore = cosineSimilarity(queryVector, embedding);
+          const weightedScore = rawScore * SOURCE_WEIGHTS.chat;
           allResults.push({
             source: 'chat',
             text: chunk.text,
-            score: cosineSimilarity(queryVector, embedding),
+            score: weightedScore,
+            rawScore,
             meta: {
               sessionId: chunk.session_id,
               startTs: chunk.start_ts,
@@ -212,10 +225,13 @@ async function unifiedSearch(query, opts = {}) {
         const chunks = db.prepare('SELECT * FROM telegram_chunks').all();
         for (const chunk of chunks) {
           const embedding = bufferToEmbedding(chunk.embedding);
+          const rawScore = cosineSimilarity(queryVector, embedding);
+          const weightedScore = rawScore * SOURCE_WEIGHTS.telegram;
           allResults.push({
             source: 'telegram',
             text: chunk.text,
-            score: cosineSimilarity(queryVector, embedding),
+            score: weightedScore,
+            rawScore,
             meta: {
               startTs: chunk.start_ts,
               endTs: chunk.end_ts,
@@ -230,13 +246,22 @@ async function unifiedSearch(query, opts = {}) {
     }
   }
 
-  // Sort by score, return top K
+  // Sort by weighted score, return top K
   const results = allResults
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 
+  // Log source distribution for debugging
+  const sourceDistribution = results.reduce((acc, r) => {
+    acc[r.source] = (acc[r.source] || 0) + 1;
+    return acc;
+  }, {});
+  const distStr = Object.entries(sourceDistribution)
+    .map(([src, count]) => `${src}: ${count}`)
+    .join(', ');
+
   const totalTime = Date.now() - startTime;
-  logger.debug(`SQLite search: ${results.length} results, embed=${embedTime}ms, total=${totalTime}ms`);
+  logger.debug(`SQLite search: ${results.length} results (${distStr}), embed=${embedTime}ms, total=${totalTime}ms`);
 
   return results;
 }

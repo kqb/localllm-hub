@@ -344,6 +344,13 @@ const result = await assembleContext('explain the routing architecture', 'sessio
 
 **Feature flags** (`config.contextPipeline.features`): `skipLogic`, `embeddingCache`, `timingStats`, `connectionPool`, `routeAwareSources`, `historyCompression` — all independently toggleable, all default ON except `historyCompression`.
 
+**Weighted RAG Sources** (Phase 3.5): Results from different sources are weighted by quality tier to prioritize curated memory over noisy chat logs:
+- `memory: 1.0` — Tier 1: Curated notes (highest priority)
+- `chat: 0.7` — Tier 2: Clawdbot sessions (useful but verbose)
+- `telegram: 0.5` — Tier 3: Raw chat (often noise, needs raw≥1.0 to pass minScore=0.50)
+
+This means a memory result with raw score 0.50 passes, but a telegram result needs raw score 1.00 (perfect match) to achieve weighted score 0.50. Both `score` (weighted) and `rawScore` are preserved in results for debugging. Source distribution is logged: `"RAG: 5 results (memory: 4, chat: 1, telegram: 0)"`.
+
 **Stats API**: `getStats()` returns per-stage averages (embedding, search, routing, assembly), skip rate, cache hits. Exposed via dashboard `/api/context-monitor`.
 
 **Benchmark**: `node packages/context-pipeline/benchmark-detailed.js` — 9 tests across Phase 1/2/3. Baseline ~2500ms, current blended avg ~570ms (77% improvement).
