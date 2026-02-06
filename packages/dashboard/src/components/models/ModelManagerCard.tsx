@@ -113,7 +113,7 @@ export function ModelManagerCard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.models.map((model) => {
+                    {data.models.map((model: any) => {
                       const sizeGB = (model.size / 1073741824).toFixed(1);
                       return (
                         <tr key={model.name} className="border-b border-border last:border-b-0">
