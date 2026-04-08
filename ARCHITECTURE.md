@@ -1,6 +1,6 @@
 # LocalLLM Hub — Architecture
 
-> **Lineage:** Built as the local AI backend for Clawdbot (codename: Zoid), a personal AI agent system. [OpenClaw](https://github.com/kqb/openclaw) is its public successor. Path references like `~/clawd/` and `~/.clawdbot/` reflect that system layout.
+> **Lineage:** Built as the local AI backend for Clawdbot (codename: Zoid), a personal AI agent system. [OpenClaw](https://github.com/openclaw/openclaw) is its public successor. Path references like `~/clawd/` and `~/.clawdbot/` reflect that system layout.
 
 ## Purpose
 
