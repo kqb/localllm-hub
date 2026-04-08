@@ -1,5 +1,7 @@
 # LocalLLM Hub — Architecture
 
+> **Lineage:** Built as the local AI backend for Clawdbot (codename: Zoid), a personal AI agent system. [OpenClaw](https://github.com/kqb/openclaw) is its public successor. Path references like `~/clawd/` and `~/.clawdbot/` reflect that system layout.
+
 ## Purpose
 
 Unified local LLM infrastructure for Apple M4 Max (36GB unified memory).
